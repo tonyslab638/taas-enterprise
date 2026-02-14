@@ -1,28 +1,30 @@
 import express from "express";
 import { ethers } from "ethers";
-import dotenv from "dotenv";
 
-dotenv.config();
 const app = express();
-const PORT = process.env.PORT || 10000;
+app.use(express.urlencoded({ extended: true }));
+app.use(express.json());
 
-const provider = new ethers.JsonRpcProvider(process.env.RPC_URL);
+const CONTRACT = process.env.CONTRACT;
+const RPC = process.env.RPC;
 
-const contract = new ethers.Contract(
-process.env.CONTRACT_ADDRESS,
-[
-"function getProduct(string) view returns(string,string,string,string,string,string,uint256,address,address)"
-],
-provider
-);
+const provider = new ethers.JsonRpcProvider(RPC);
 
+const abi = [
+  "function getProduct(string memory) view returns(string,string,string,string,string,string,uint256,address,address)"
+];
 
-// PAGE TEMPLATE
-function page(content){
-return `
+const contract = new ethers.Contract(CONTRACT, abi, provider);
+
+/* ================= UI PAGE ================= */
+
+app.get("/", (req, res) => {
+  res.send(`
+<!DOCTYPE html>
 <html>
 <head>
-<title>ASJUJ Verify</title>
+<title>ASJUJ Network Verifier</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
 
 <script src="https://unpkg.com/html5-qrcode"></script>
 
@@ -30,8 +32,8 @@ return `
 
 body{
 margin:0;
-font-family:Segoe UI;
-background:black;
+font-family:Segoe UI, sans-serif;
+background:linear-gradient(135deg,#020617,#0f172a,#020617);
 color:white;
 display:flex;
 justify-content:center;
@@ -40,150 +42,242 @@ height:100vh;
 }
 
 .card{
-background:#0b0b0b;
-padding:50px;
-border-radius:20px;
 width:420px;
+background:rgba(15,23,42,.85);
+padding:30px;
+border-radius:20px;
+box-shadow:0 0 40px rgba(0,255,255,.15);
 text-align:center;
-box-shadow:0 0 60px rgba(0,255,255,.15);
+backdrop-filter:blur(10px);
 }
 
-.title{
-font-size:28px;
-margin-bottom:25px;
+h1{
+margin-bottom:10px;
+color:#22d3ee;
+letter-spacing:2px;
 }
 
 input{
 width:100%;
 padding:14px;
-border-radius:10px;
+border-radius:12px;
 border:none;
-margin-bottom:15px;
-background:#111;
+margin-top:15px;
+font-size:16px;
+background:#020617;
 color:white;
+outline:none;
+text-align:center;
 }
 
 button{
 width:100%;
 padding:14px;
+margin-top:15px;
 border:none;
 border-radius:12px;
-background:linear-gradient(45deg,#00f0ff,#00ffa6);
+background:linear-gradient(90deg,#22d3ee,#818cf8);
 font-weight:bold;
+font-size:16px;
 cursor:pointer;
-margin-top:10px;
+color:black;
+transition:.25s;
 }
 
 button:hover{
 transform:scale(1.05);
 }
 
-.scan{
-background:#151515;
-margin-top:15px;
+#reader{
+margin-top:20px;
 }
 
-.label{color:#9ae6ff;margin-top:10px;font-size:14px;}
-.value{margin-bottom:10px;font-weight:600;word-break:break-word;}
-.success{color:#00ffa6;font-size:22px;margin-bottom:15px;}
-.error{color:#ff5e7a;font-size:22px;margin-bottom:15px;}
+.result{
+margin-top:20px;
+padding:15px;
+border-radius:14px;
+background:#020617;
+text-align:left;
+font-size:14px;
+line-height:1.6;
+}
 
-#reader{
-margin-top:15px;
+.ok{
+border:1px solid #22c55e;
+}
+
+.err{
+border:1px solid #ef4444;
 }
 
 </style>
 </head>
+
 <body>
-${content}
-</body>
-</html>
-`;
-}
 
-
-
-// HOME PAGE
-app.get("/", (req,res)=>{
-res.send(page(`
 <div class="card">
 
-<div class="title">ASJUJ VERIFY</div>
+<h1>ASJUJ VERIFY</h1>
 
-<form action="/verify">
-<input id="gpid" name="gpid" placeholder="Enter GPID"/>
-<button>Verify Product</button>
+<form method="POST" action="/verify">
+<input name="gpid" placeholder="Enter GPID" required/>
+<button>VERIFY PRODUCT</button>
 </form>
 
-<button class="scan" onclick="startScanner()">📷 Scan QR</button>
+<button onclick="startScanner()">SCAN QR</button>
 
 <div id="reader"></div>
 
+</div>
+
 <script>
+
+function extractGPID(text){
+
+let gpid=text.trim();
+
+if(gpid.includes("/verify/"))
+gpid=gpid.split("/verify/")[1];
+
+if(gpid.includes("?"))
+gpid=gpid.split("?")[0];
+
+if(gpid.endsWith("/"))
+gpid=gpid.slice(0,-1);
+
+return gpid;
+}
+
 function startScanner(){
-const qr=new Html5Qrcode("reader");
-qr.start(
+
+const reader = new Html5Qrcode("reader");
+
+reader.start(
 { facingMode:"environment" },
 { fps:10, qrbox:250 },
-code=>{
-document.getElementById("gpid").value=code;
-qr.stop();
-}
+(decoded)=>{
+
+let gpid=extractGPID(decoded);
+
+window.location="/verify/"+gpid;
+
+reader.stop();
+},
+(err)=>{}
 );
+
 }
+
 </script>
 
-</div>
-`));
+</body>
+</html>
+`);
 });
 
+/* ================= VERIFY POST ================= */
 
+app.post("/verify", async (req,res)=>{
+res.redirect("/verify/"+req.body.gpid);
+});
 
-// VERIFY PAGE
-app.get("/verify", async(req,res)=>{
+/* ================= VERIFY PAGE ================= */
+
+app.get("/verify/:gpid", async (req,res)=>{
+
+const gpid=req.params.gpid;
 
 try{
-const gpid=req.query.gpid;
+
 const p=await contract.getProduct(gpid);
 
-res.send(page(`
-<div class="card">
+res.send(`
+<body style="
+background:#020617;
+font-family:Segoe UI;
+color:white;
+display:flex;
+justify-content:center;
+align-items:center;
+height:100vh">
 
-<div class="success">✔ AUTHENTIC PRODUCT</div>
+<div style="
+background:#0f172a;
+padding:35px;
+border-radius:20px;
+width:420px;
+box-shadow:0 0 40px rgba(0,255,255,.2)">
 
-<div class="label">GPID</div><div class="value">${p[0]}</div>
-<div class="label">Brand</div><div class="value">${p[1]}</div>
-<div class="label">Model</div><div class="value">${p[2]}</div>
-<div class="label">Category</div><div class="value">${p[3]}</div>
-<div class="label">Factory</div><div class="value">${p[4]}</div>
-<div class="label">Batch</div><div class="value">${p[5]}</div>
-<div class="label">Born</div><div class="value">${new Date(Number(p[6])*1000).toUTCString()}</div>
-<div class="label">Issuer</div><div class="value">${p[7]}</div>
-<div class="label">Owner</div><div class="value">${p[8]}</div>
+<h2 style="color:#22d3ee;text-align:center">✓ ASJUJ Verified Product</h2>
+
+<p><b>GPID:</b> ${p[0]}</p>
+<p><b>Brand:</b> ${p[1]}</p>
+<p><b>Model:</b> ${p[2]}</p>
+<p><b>Category:</b> ${p[3]}</p>
+<p><b>Factory:</b> ${p[4]}</p>
+<p><b>Batch:</b> ${p[5]}</p>
+<p><b>Born:</b> ${new Date(Number(p[6])*1000).toUTCString()}</p>
+<p><b>Issuer:</b> ${p[7]}</p>
+<p><b>Owner:</b> ${p[8]}</p>
 
 <br>
-<a href="/" style="color:cyan">Verify Another</a>
+
+<a href="/" style="
+display:block;
+text-align:center;
+padding:12px;
+border-radius:12px;
+background:linear-gradient(90deg,#22d3ee,#818cf8);
+color:black;
+font-weight:bold;
+text-decoration:none">Verify Another</a>
 
 </div>
-`));
+</body>
+`);
 
 }catch{
 
-res.send(page(`
-<div class="card">
+res.send(`
+<body style="
+background:#020617;
+display:flex;
+justify-content:center;
+align-items:center;
+height:100vh;
+font-family:Segoe UI;
+color:white">
 
-<div class="error">❌ PRODUCT NOT FOUND</div>
-<div>This GPID is not registered on ASJUJ Network</div>
+<div style="
+background:#0f172a;
+padding:35px;
+border-radius:20px;
+width:420px;
+text-align:center;
+box-shadow:0 0 40px rgba(255,0,0,.25)">
 
-<br><br>
-<a href="/" style="color:cyan">Try Again</a>
+<h2 style="color:#ef4444">❌ Product Not Found</h2>
+<p>This GPID is not registered on ASJUJ Network.</p>
+
+<br>
+
+<a href="/" style="
+display:block;
+padding:12px;
+border-radius:12px;
+background:#ef4444;
+color:white;
+font-weight:bold;
+text-decoration:none">Try Again</a>
 
 </div>
-`));
-
+</body>
+`);
 }
 
 });
 
+/* ================= START SERVER ================= */
 
+const PORT=process.env.PORT||10000;
 app.listen(PORT,()=>console.log("Verifier running on",PORT));
