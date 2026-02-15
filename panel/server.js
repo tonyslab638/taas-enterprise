@@ -1,187 +1,210 @@
-import express from "express";
-import { ethers } from "ethers";
-import QRCode from "qrcode";
-import dotenv from "dotenv";
+import express from "express"
+import dotenv from "dotenv"
+import { ethers } from "ethers"
+import bodyParser from "body-parser"
 
-dotenv.config();
-const app = express();
-app.use(express.urlencoded({extended:true}));
+dotenv.config()
 
-const PORT = process.env.PORT || 10000;
+const app = express()
+app.use(bodyParser.json())
+app.use(bodyParser.urlencoded({ extended:true }))
 
-const provider = new ethers.JsonRpcProvider(process.env.RPC_URL);
-const wallet = new ethers.Wallet(process.env.PRIVATE_KEY, provider);
+/* ===============================
+   ENV VALIDATION
+=================================*/
 
-const contract = new ethers.Contract(
-process.env.CONTRACT_ADDRESS,
-[
-"function createProduct(string,string,string,string,string,string)"
-],
-wallet
-);
+const RPC = process.env.RPC_URL
+const PRIVATE = process.env.PRIVATE_KEY
+const CORE = process.env.CONTRACT_ADDRESS
+const OWNERSHIP = process.env.OWNERSHIP_ADDRESS
 
+if(!RPC || !PRIVATE || !CORE || !OWNERSHIP){
+ console.log("❌ Missing ENV variables")
+ console.log("RPC:",RPC?"OK":"MISSING")
+ console.log("PRIVATE:",PRIVATE?"OK":"MISSING")
+ console.log("CORE:",CORE?"OK":"MISSING")
+ console.log("OWNERSHIP:",OWNERSHIP?"OK":"MISSING")
+ process.exit(1)
+}
 
-// PAGE TEMPLATE
-function page(content){
-return `
+/* ===============================
+   PROVIDER + WALLET
+=================================*/
+
+const provider = new ethers.JsonRpcProvider(RPC)
+const wallet = new ethers.Wallet(PRIVATE,provider)
+
+/* ===============================
+   CORE CONTRACT
+=================================*/
+
+const coreABI = [
+ "function createProduct(string,string,string,string,string,string)",
+ "function getProduct(string) view returns(string,string,string,string,string,string,uint256,address,address)"
+]
+
+const core = new ethers.Contract(CORE,coreABI,wallet)
+
+/* ===============================
+   OWNERSHIP CONTRACT
+=================================*/
+
+const ownershipABI = [
+ "function transferProduct(string,address)",
+ "function ownerOf(string) view returns(address)"
+]
+
+const ownership = new ethers.Contract(
+ OWNERSHIP,
+ ownershipABI,
+ wallet
+)
+
+/* ===============================
+   UI PAGE
+=================================*/
+
+app.get("/",(req,res)=>{
+res.send(`
 <html>
 <head>
-<title>ASJUJ Panel</title>
+<title>TAAS PANEL V3</title>
 <style>
-
 body{
-margin:0;
-font-family:Segoe UI;
-background:black;
-color:white;
-display:flex;
-justify-content:center;
-align-items:center;
-height:100vh;
+ background:#0f172a;
+ color:white;
+ font-family:system-ui;
+ text-align:center;
+ padding-top:40px
 }
-
 .card{
-background:#0b0b0b;
-padding:50px;
-border-radius:20px;
-width:430px;
-text-align:center;
-box-shadow:0 0 60px rgba(0,255,255,.2);
+ background:#111827;
+ padding:30px;
+ border-radius:20px;
+ width:420px;
+ margin:auto;
+ box-shadow:0 0 40px rgba(0,255,255,.15)
 }
-
-.title{
-font-size:28px;
-margin-bottom:25px;
-}
-
 input{
-width:100%;
-padding:14px;
-margin-bottom:12px;
-border-radius:10px;
-border:none;
-background:#111;
-color:white;
+ width:100%;
+ margin:6px 0;
+ padding:12px;
+ border-radius:10px;
+ border:none;
+ background:#1f2937;
+ color:white
 }
-
 button{
-width:100%;
-padding:14px;
-border:none;
-border-radius:12px;
-background:linear-gradient(45deg,#00f0ff,#00ffa6);
-font-weight:bold;
-cursor:pointer;
+ width:100%;
+ margin-top:12px;
+ padding:14px;
+ border:none;
+ border-radius:12px;
+ background:linear-gradient(90deg,#06b6d4,#3b82f6);
+ color:white;
+ font-weight:bold;
+ cursor:pointer
 }
-
-button:hover{transform:scale(1.05)}
-
-.success{color:#00ffa6;font-size:22px;margin-bottom:15px;}
-
-.qr{
-margin-top:20px;
+button:hover{
+ transform:scale(1.03)
 }
-
-a{color:#00eaff;text-decoration:none;}
-
 </style>
 </head>
 <body>
-${content}
+
+<div class="card">
+<h2>ASJUJ Control Panel</h2>
+
+<input id="gpid" placeholder="GPID">
+<input id="brand" placeholder="Brand">
+<input id="model" placeholder="Model">
+<input id="category" placeholder="Category">
+<input id="factory" placeholder="Factory">
+<input id="batch" placeholder="Batch">
+
+<button onclick="create()">Create Product</button>
+<button onclick="transfer()">Transfer Ownership</button>
+
+<p id="msg"></p>
+</div>
+
+<script>
+
+async function create(){
+const data={
+ gpid:gpid.value,
+ brand:brand.value,
+ model:model.value,
+ category:category.value,
+ factory:factory.value,
+ batch:batch.value
+}
+
+const r=await fetch("/create",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(data)})
+msg.innerText=await r.text()
+}
+
+async function transfer(){
+const gpidVal=prompt("Enter GPID")
+const to=prompt("Enter New Owner Address")
+
+const r=await fetch("/transfer",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({gpid:gpidVal,to})})
+msg.innerText=await r.text()
+}
+
+</script>
+
 </body>
 </html>
-`;
-}
+`)
+})
 
+/* ===============================
+   CREATE PRODUCT
+=================================*/
 
-
-// HOME
-app.get("/",(req,res)=>{
-res.send(page(`
-<div class="card">
-
-<div class="title">ASJUJ PRODUCT PANEL</div>
-
-<form action="/create">
-
-<input name="gpid" placeholder="GPID" required>
-<input name="brand" placeholder="Brand" required>
-<input name="model" placeholder="Model" required>
-<input name="category" placeholder="Category" required>
-<input name="factory" placeholder="Factory" required>
-<input name="batch" placeholder="Batch" required>
-
-<button>Create Product</button>
-
-</form>
-
-</div>
-`));
-});
-
-
-
-
-// CREATE PRODUCT
-app.get("/create", async(req,res)=>{
-
+app.post("/create", async(req,res)=>{
 try{
+ const {gpid,brand,model,category,factory,batch}=req.body
 
-const {gpid,brand,model,category,factory,batch}=req.query;
+ const tx=await core.createProduct(
+  gpid,brand,model,category,factory,batch
+ )
 
-const tx = await contract.createProduct(
-gpid,
-brand,
-model,
-category,
-factory,
-batch
-);
+ await tx.wait()
 
-await tx.wait();
-
-const verifyURL = `${process.env.VERIFIER_URL}/verify?gpid=${gpid}`;
-const qr = await QRCode.toDataURL(verifyURL);
-
-res.send(page(`
-<div class="card">
-
-<div class="success">✔ Product Created</div>
-
-GPID:<br>${gpid}<br><br>
-TX:<br>${tx.hash}
-
-<div class="qr">
-<img src="${qr}" width="200">
-</div>
-
-<br>
-<a href="${verifyURL}">Verify Page</a>
-
-<br><br>
-<a href="/">Create Another</a>
-
-</div>
-`));
-
-}catch(e){
-
-res.send(page(`
-<div class="card">
-
-<div style="color:#ff5e7a;font-size:22px;">❌ Error</div>
-<br>
-${e.reason || e.message}
-
-<br><br>
-<a href="/">Back</a>
-
-</div>
-`));
-
+ res.send("✔ Product Created")
+}catch(err){
+ res.send(err.reason||err.message)
 }
+})
 
-});
+/* ===============================
+   TRANSFER OWNERSHIP
+=================================*/
 
+app.post("/transfer", async(req,res)=>{
+try{
+ const {gpid,to}=req.body
 
-app.listen(PORT,()=>console.log("Panel running on",PORT));
+ const tx=await ownership.transferProduct(gpid,to)
+ await tx.wait()
+
+ res.send("✔ Ownership Transferred")
+}catch(err){
+ res.send(err.reason||err.message)
+}
+})
+
+/* ===============================
+   SERVER START
+=================================*/
+
+app.listen(10000,()=>{
+console.log("================================")
+console.log("TAAS PANEL V3 RUNNING")
+console.log("Wallet:",wallet.address)
+console.log("Core:",CORE)
+console.log("Ownership:",OWNERSHIP)
+console.log("================================")
+})

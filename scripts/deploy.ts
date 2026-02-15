@@ -1,33 +1,53 @@
-import hre from "hardhat";
+import { ethers } from "ethers";
+import fs from "fs";
+import dotenv from "dotenv";
+
+dotenv.config();
 
 async function main() {
 
-  const [deployer] = await hre.ethers.getSigners();
+    const RPC = process.env.SEPOLIA_RPC_URL!;
+    const PK = process.env.PRIVATE_KEY!;
 
-  console.log("====================================");
-  console.log("Deploying with wallet:", deployer.address);
+    if (!RPC || !PK) {
+        throw new Error("Missing ENV variables");
+    }
 
-  const balance = await deployer.provider.getBalance(deployer.address);
-  console.log("Balance:", hre.ethers.formatEther(balance), "ETH");
-  console.log("====================================");
+    const provider = new ethers.JsonRpcProvider(RPC);
+    const wallet = new ethers.Wallet(PK, provider);
 
-  const Factory = await hre.ethers.getContractFactory("TaaSProductCore");
+    console.log("====================================");
+    console.log("Deploying with:", wallet.address);
 
-  console.log("Deploying contract...");
+    const balance = await provider.getBalance(wallet.address);
+    console.log("Balance:", ethers.formatEther(balance), "ETH");
+    console.log("====================================");
 
-  const contract = await Factory.deploy();
+    const artifact = JSON.parse(
+        fs.readFileSync(
+            "./artifacts/contracts/TaaSAuthority.sol/TaaSAuthority.json",
+            "utf8"
+        )
+    );
 
-  await contract.waitForDeployment();
+    const factory = new ethers.ContractFactory(
+        artifact.abi,
+        artifact.bytecode,
+        wallet
+    );
 
-  const address = await contract.getAddress();
+    console.log("Deploying contract...");
 
-  console.log("====================================");
-  console.log("✅ CONTRACT DEPLOYED SUCCESSFULLY");
-  console.log("Address:", address);
-  console.log("====================================");
+    const contract = await factory.deploy(); // ← NO ARGUMENTS
+
+    await contract.waitForDeployment();
+
+    const addr = await contract.getAddress();
+
+    console.log("====================================");
+    console.log("✅ AUTHORITY DEPLOYED");
+    console.log("Address:", addr);
+    console.log("====================================");
 }
 
-main().catch((err) => {
-  console.error("DEPLOY FAILED:", err);
-  process.exitCode = 1;
-});
+main().catch(console.error);

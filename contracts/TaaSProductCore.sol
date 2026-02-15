@@ -1,18 +1,23 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-/*
-    TAAS V3 — PRODUCT CORE CONTRACT
-    --------------------------------
-    Features:
-    ✔ Create product
-    ✔ Immutable product data
-    ✔ Ownership tracking
-    ✔ Public verification
-    ✔ Gas optimized
-*/
-
 contract TaaSProductCore {
+
+    address public owner;
+
+    constructor() {
+        owner = msg.sender;
+    }
+
+    modifier onlyOwner() {
+        require(msg.sender == owner, "NOT_OWNER");
+        _;
+    }
+
+    modifier onlyBrand() {
+        require(brands[msg.sender], "NOT_AUTHORIZED_BRAND");
+        _;
+    }
 
     struct Product {
         string gpid;
@@ -28,6 +33,10 @@ contract TaaSProductCore {
 
     mapping(string => Product) private products;
     mapping(string => bool) private exists;
+    mapping(address => bool) public brands;
+
+    event BrandAdded(address brand);
+    event BrandRemoved(address brand);
 
     event ProductCreated(
         string gpid,
@@ -36,25 +45,28 @@ contract TaaSProductCore {
         uint256 timestamp
     );
 
-    event OwnershipTransferred(
-        string gpid,
-        address indexed from,
-        address indexed to
-    );
+    // ========================
+    // BRAND MANAGEMENT
+    // ========================
 
-    modifier onlyOwner(string memory gpid) {
-        require(products[gpid].owner == msg.sender, "NOT_OWNER");
-        _;
+    function addBrand(address brand) external onlyOwner {
+        brands[brand] = true;
+        emit BrandAdded(brand);
     }
 
-    modifier productExists(string memory gpid) {
-        require(exists[gpid], "PRODUCT_NOT_FOUND");
-        _;
+    function removeBrand(address brand) external onlyOwner {
+        brands[brand] = false;
+        emit BrandRemoved(brand);
     }
 
-    // =========================
+    function isBrand(address user) external view returns(bool){
+        return brands[user];
+    }
+
+    // ========================
     // CREATE PRODUCT
-    // =========================
+    // ========================
+
     function createProduct(
         string memory gpid,
         string memory brand,
@@ -62,7 +74,7 @@ contract TaaSProductCore {
         string memory category,
         string memory factory,
         string memory batch
-    ) external {
+    ) external onlyBrand {
 
         require(bytes(gpid).length > 0, "INVALID_GPID");
         require(!exists[gpid], "GPID_EXISTS");
@@ -89,32 +101,13 @@ contract TaaSProductCore {
         );
     }
 
-    // =========================
-    // TRANSFER OWNERSHIP
-    // =========================
-    function transferOwnership(
-        string memory gpid,
-        address newOwner
-    )
-        external
-        productExists(gpid)
-        onlyOwner(gpid)
-    {
-        require(newOwner != address(0), "INVALID_OWNER");
-
-        address oldOwner = products[gpid].owner;
-        products[gpid].owner = newOwner;
-
-        emit OwnershipTransferred(gpid, oldOwner, newOwner);
-    }
-
-    // =========================
+    // ========================
     // VERIFY PRODUCT
-    // =========================
+    // ========================
+
     function getProduct(string memory gpid)
         external
         view
-        productExists(gpid)
         returns (
             string memory,
             string memory,
@@ -127,6 +120,8 @@ contract TaaSProductCore {
             address
         )
     {
+        require(exists[gpid], "PRODUCT_NOT_FOUND");
+
         Product memory p = products[gpid];
 
         return (
@@ -142,14 +137,7 @@ contract TaaSProductCore {
         );
     }
 
-    // =========================
-    // QUICK CHECK
-    // =========================
-    function existsProduct(string memory gpid)
-        external
-        view
-        returns (bool)
-    {
+    function productExists(string memory gpid) external view returns (bool) {
         return exists[gpid];
     }
 }
