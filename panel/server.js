@@ -1,210 +1,239 @@
 import express from "express"
-import dotenv from "dotenv"
 import { ethers } from "ethers"
-import bodyParser from "body-parser"
+import dotenv from "dotenv"
 
 dotenv.config()
 
 const app = express()
-app.use(bodyParser.json())
-app.use(bodyParser.urlencoded({ extended:true }))
+app.use(express.json())
+app.use(express.urlencoded({ extended:true }))
 
-/* ===============================
-   ENV VALIDATION
-=================================*/
+/* =======================================================
+   ENV CHECK
+======================================================= */
 
-const RPC = process.env.RPC_URL
-const PRIVATE = process.env.PRIVATE_KEY
+const RPC = process.env.SEPOLIA_RPC_URL
+const PRIVATE_KEY = process.env.PRIVATE_KEY
 const CORE = process.env.CONTRACT_ADDRESS
-const OWNERSHIP = process.env.OWNERSHIP_ADDRESS
+const HISTORY = process.env.HISTORY_ADDRESS
 
-if(!RPC || !PRIVATE || !CORE || !OWNERSHIP){
- console.log("❌ Missing ENV variables")
- console.log("RPC:",RPC?"OK":"MISSING")
- console.log("PRIVATE:",PRIVATE?"OK":"MISSING")
- console.log("CORE:",CORE?"OK":"MISSING")
- console.log("OWNERSHIP:",OWNERSHIP?"OK":"MISSING")
- process.exit(1)
+if(!RPC || !PRIVATE_KEY || !CORE){
+    console.log("❌ Missing ENV variables")
+    console.log("RPC:",RPC? "OK":"MISSING")
+    console.log("KEY:",PRIVATE_KEY? "OK":"MISSING")
+    console.log("CORE:",CORE? "OK":"MISSING")
+    process.exit(1)
 }
 
-/* ===============================
+/* =======================================================
    PROVIDER + WALLET
-=================================*/
+======================================================= */
 
 const provider = new ethers.JsonRpcProvider(RPC)
-const wallet = new ethers.Wallet(PRIVATE,provider)
+const wallet = new ethers.Wallet(PRIVATE_KEY, provider)
 
-/* ===============================
-   CORE CONTRACT
-=================================*/
+/* =======================================================
+   CONTRACTS
+======================================================= */
 
-const coreABI = [
- "function createProduct(string,string,string,string,string,string)",
- "function getProduct(string) view returns(string,string,string,string,string,string,uint256,address,address)"
-]
-
-const core = new ethers.Contract(CORE,coreABI,wallet)
-
-/* ===============================
-   OWNERSHIP CONTRACT
-=================================*/
-
-const ownershipABI = [
- "function transferProduct(string,address)",
- "function ownerOf(string) view returns(address)"
-]
-
-const ownership = new ethers.Contract(
- OWNERSHIP,
- ownershipABI,
- wallet
+const coreContract = new ethers.Contract(
+    CORE,
+    [
+        "function createProduct(string,string,string,string,string,string)",
+        "function transferOwnership(string,address)",
+        "function getProduct(string) view returns(string,string,string,string,string,string,uint256,address,address)"
+    ],
+    wallet
 )
 
-/* ===============================
-   UI PAGE
-=================================*/
+let historyContract = null
 
-app.get("/",(req,res)=>{
+if(HISTORY){
+    historyContract = new ethers.Contract(
+        HISTORY,
+        [
+            "function record(string,address,address)",
+            "function getHistory(string) view returns(tuple(address from,address to,uint256 time)[])"
+        ],
+        wallet
+    )
+}
+
+/* =======================================================
+   UI PAGE
+======================================================= */
+
+app.get("/", (req,res)=>{
 res.send(`
 <html>
 <head>
-<title>TAAS PANEL V3</title>
+<title>ASJUJ Control Panel</title>
 <style>
 body{
- background:#0f172a;
- color:white;
- font-family:system-ui;
- text-align:center;
- padding-top:40px
-}
-.card{
- background:#111827;
- padding:30px;
- border-radius:20px;
- width:420px;
- margin:auto;
- box-shadow:0 0 40px rgba(0,255,255,.15)
+font-family:Arial;
+background:#0a0f1c;
+color:white;
+text-align:center;
+padding-top:40px;
 }
 input{
- width:100%;
- margin:6px 0;
- padding:12px;
- border-radius:10px;
- border:none;
- background:#1f2937;
- color:white
+padding:12px;
+margin:8px;
+width:260px;
+border-radius:10px;
+border:none;
 }
 button{
- width:100%;
- margin-top:12px;
- padding:14px;
- border:none;
- border-radius:12px;
- background:linear-gradient(90deg,#06b6d4,#3b82f6);
- color:white;
- font-weight:bold;
- cursor:pointer
+padding:12px 22px;
+margin:10px;
+border:none;
+border-radius:12px;
+background:#00ffd5;
+font-weight:bold;
+cursor:pointer;
 }
-button:hover{
- transform:scale(1.03)
+.card{
+background:#121a2c;
+padding:25px;
+border-radius:20px;
+width:420px;
+margin:auto;
+box-shadow:0 0 40px #00ffd520;
 }
 </style>
 </head>
+
 <body>
 
 <div class="card">
+
 <h2>ASJUJ Control Panel</h2>
 
-<input id="gpid" placeholder="GPID">
-<input id="brand" placeholder="Brand">
-<input id="model" placeholder="Model">
-<input id="category" placeholder="Category">
-<input id="factory" placeholder="Factory">
-<input id="batch" placeholder="Batch">
+<input id="gpid" placeholder="GPID"><br>
+<input id="brand" placeholder="Brand"><br>
+<input id="model" placeholder="Model"><br>
+<input id="category" placeholder="Category"><br>
+<input id="factory" placeholder="Factory"><br>
+<input id="batch" placeholder="Batch"><br>
+<input id="newOwner" placeholder="Transfer Address"><br>
 
 <button onclick="create()">Create Product</button>
 <button onclick="transfer()">Transfer Ownership</button>
+<button onclick="history()">View History</button>
 
 <p id="msg"></p>
+
 </div>
 
 <script>
 
 async function create(){
-const data={
- gpid:gpid.value,
- brand:brand.value,
- model:model.value,
- category:category.value,
- factory:factory.value,
- batch:batch.value
-}
-
-const r=await fetch("/create",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(data)})
-msg.innerText=await r.text()
+const res = await fetch("/create",{method:"POST",headers:{"Content-Type":"application/json"},
+body:JSON.stringify({
+gpid:gpid.value,
+brand:brand.value,
+model:model.value,
+category:category.value,
+factory:factory.value,
+batch:batch.value
+})})
+msg.innerText = await res.text()
 }
 
 async function transfer(){
-const gpidVal=prompt("Enter GPID")
-const to=prompt("Enter New Owner Address")
+const res = await fetch("/transfer",{method:"POST",headers:{"Content-Type":"application/json"},
+body:JSON.stringify({
+gpid:gpid.value,
+newOwner:newOwner.value
+})})
+msg.innerText = await res.text()
+}
 
-const r=await fetch("/transfer",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({gpid:gpidVal,to})})
-msg.innerText=await r.text()
+function history(){
+window.open("/history/"+gpid.value,"_blank")
 }
 
 </script>
-
 </body>
 </html>
 `)
 })
 
-/* ===============================
+/* =======================================================
    CREATE PRODUCT
-=================================*/
+======================================================= */
 
 app.post("/create", async(req,res)=>{
 try{
- const {gpid,brand,model,category,factory,batch}=req.body
 
- const tx=await core.createProduct(
-  gpid,brand,model,category,factory,batch
- )
+const {gpid,brand,model,category,factory,batch} = req.body
 
- await tx.wait()
+const tx = await coreContract.createProduct(
+gpid,brand,model,category,factory,batch
+)
 
- res.send("✔ Product Created")
+await tx.wait()
+
+res.send("✔ Product Created")
+
 }catch(err){
- res.send(err.reason||err.message)
+res.send("❌ "+err.reason || err.message)
 }
 })
 
-/* ===============================
+/* =======================================================
    TRANSFER OWNERSHIP
-=================================*/
+======================================================= */
 
 app.post("/transfer", async(req,res)=>{
 try{
- const {gpid,to}=req.body
 
- const tx=await ownership.transferProduct(gpid,to)
- await tx.wait()
+const {gpid,newOwner} = req.body
 
- res.send("✔ Ownership Transferred")
+const product = await coreContract.getProduct(gpid)
+const oldOwner = product[8]
+
+const tx = await coreContract.transferOwnership(gpid,newOwner)
+await tx.wait()
+
+if(historyContract){
+await historyContract.record(gpid, oldOwner, newOwner)
+}
+
+res.send("✔ Ownership Transferred")
+
 }catch(err){
- res.send(err.reason||err.message)
+res.send("❌ "+(err.reason||err.message))
 }
 })
 
-/* ===============================
-   SERVER START
-=================================*/
+/* =======================================================
+   HISTORY VIEW
+======================================================= */
+
+app.get("/history/:gpid", async(req,res)=>{
+try{
+
+if(!historyContract) return res.send("History not deployed")
+
+const data = await historyContract.getHistory(req.params.gpid)
+
+res.json(data)
+
+}catch(err){
+res.send(err.message)
+}
+})
+
+/* =======================================================
+   START SERVER
+======================================================= */
 
 app.listen(10000,()=>{
-console.log("================================")
-console.log("TAAS PANEL V3 RUNNING")
+console.log("===================================")
+console.log("🚀 TAAS PANEL LIVE")
 console.log("Wallet:",wallet.address)
 console.log("Core:",CORE)
-console.log("Ownership:",OWNERSHIP)
-console.log("================================")
+console.log("History:",HISTORY||"Not connected")
+console.log("===================================")
 })
