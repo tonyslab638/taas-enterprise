@@ -1,53 +1,31 @@
-import { ethers } from "ethers";
-import fs from "fs";
-import dotenv from "dotenv";
-
-dotenv.config();
+import { ethers } from "hardhat";
 
 async function main() {
 
-    const RPC = process.env.SEPOLIA_RPC_URL!;
-    const PK = process.env.PRIVATE_KEY!;
+  const [deployer] = await ethers.getSigners();
 
-    if (!RPC || !PK) {
-        throw new Error("Missing ENV variables");
-    }
+  console.log("====================================");
+  console.log("Deploying with:", deployer.address);
 
-    const provider = new ethers.JsonRpcProvider(RPC);
-    const wallet = new ethers.Wallet(PK, provider);
+  const balance = await deployer.provider.getBalance(deployer.address);
+  console.log("Balance:", ethers.formatEther(balance), "ETH");
+  console.log("====================================");
 
-    console.log("====================================");
-    console.log("Deploying with:", wallet.address);
+  // Deploy Core V2
+  const Core = await ethers.getContractFactory("TaaSProductCoreV2");
 
-    const balance = await provider.getBalance(wallet.address);
-    console.log("Balance:", ethers.formatEther(balance), "ETH");
-    console.log("====================================");
+  console.log("Deploying contract...");
 
-    const artifact = JSON.parse(
-        fs.readFileSync(
-            "./artifacts/contracts/TaaSAuthority.sol/TaaSAuthority.json",
-            "utf8"
-        )
-    );
+  const core = await Core.deploy();
+  await core.waitForDeployment();
 
-    const factory = new ethers.ContractFactory(
-        artifact.abi,
-        artifact.bytecode,
-        wallet
-    );
-
-    console.log("Deploying contract...");
-
-    const contract = await factory.deploy(); // ← NO ARGUMENTS
-
-    await contract.waitForDeployment();
-
-    const addr = await contract.getAddress();
-
-    console.log("====================================");
-    console.log("✅ AUTHORITY DEPLOYED");
-    console.log("Address:", addr);
-    console.log("====================================");
+  console.log("====================================");
+  console.log("✅ CORE V2 DEPLOYED");
+  console.log("Address:", await core.getAddress());
+  console.log("====================================");
 }
 
-main().catch(console.error);
+main().catch((error) => {
+  console.error("DEPLOY FAILED:", error);
+  process.exit(1);
+});
