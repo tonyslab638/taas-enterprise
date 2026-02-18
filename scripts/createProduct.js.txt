@@ -1,0 +1,49 @@
+import "dotenv/config"
+import { ethers } from "ethers"
+import fs from "fs"
+
+// ---------- ENV ----------
+const RPC = process.env.RPC_URL
+const KEY = process.env.PRIVATE_KEY
+const ADDRESS = process.env.CONTRACT_ADDRESS
+
+if (!RPC) throw new Error("RPC_URL missing in .env")
+if (!KEY) throw new Error("PRIVATE_KEY missing in .env")
+if (!ADDRESS) throw new Error("CONTRACT_ADDRESS missing in .env")
+
+// ---------- PROVIDER ----------
+const provider = new ethers.JsonRpcProvider(RPC)
+const wallet = new ethers.Wallet(KEY, provider)
+
+// ---------- ABI ----------
+const artifact = JSON.parse(
+  fs.readFileSync("./artifacts/contracts/TaaSCore.sol/TaaSCore.json")
+)
+
+const contract = new ethers.Contract(ADDRESS, artifact.abi, wallet)
+
+// ---------- MAIN ----------
+async function main() {
+
+  const id = "ASJUJ-" + Date.now()
+
+  console.log("Creating product:", id)
+
+  const tx = await contract.createProduct(
+    id,
+    "ASJUJ",
+    "Titan X Pro",
+    "Electronics",
+    "Factory-A",
+    "Batch-1",
+    wallet.address
+  )
+
+  console.log("Waiting confirmation...")
+  await tx.wait()
+
+  console.log("✅ PRODUCT CREATED SUCCESSFULLY")
+  console.log("Product ID:", id)
+}
+
+main().catch(console.error)

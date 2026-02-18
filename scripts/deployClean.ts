@@ -1,21 +1,17 @@
-import { ethers } from "hardhat";
+import hre from "hardhat";
 
 async function main() {
+  console.log("Deploying contract...");
 
-    // 👇 THIS NAME MUST MATCH YOUR CONTRACT NAME EXACTLY
-    const CoreFactory = await ethers.getContractFactory("TaaSCore");
+  const factory = await hre.ethers.getContractFactory("TaaSCore");
+  const contract = await factory.deploy();
 
-    // deploy
-    const core = await CoreFactory.deploy();
+  await contract.waitForDeployment();
 
-    // wait deployment
-    await core.waitForDeployment();
-
-    // print address
-    console.log("CORE DEPLOYED TO:", await core.getAddress());
+  console.log("✅ Contract deployed to:", await contract.getAddress());
 }
 
-main().catch((error) => {
-    console.error(error);
-    process.exitCode = 1;
+main().catch((err) => {
+  console.error(err);
+  process.exitCode = 1;
 });

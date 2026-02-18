@@ -1,143 +1,63 @@
-// =============================
-// TaaS API SERVER — CLEAN BUILD
-// =============================
+import express from "express"
+import cors from "cors"
+import fs from "fs"
+import path from "path"
+import { fileURLToPath } from "url"
+import "dotenv/config"
+import { ethers } from "ethers"
 
-require("dotenv").config()
-const express = require("express")
-const { ethers } = require("ethers")
-const fs = require("fs")
-const path = require("path")
-
-// =============================
-// CONFIG
-// =============================
-
-const PORT = process.env.PORT || 4000
-const RPC = process.env.SEPOLIA_RPC_URL
-const PRIVATE_KEY = process.env.PRIVATE_KEY
-const CONTRACT_ADDRESS = process.env.CONTRACT_ADDRESS
-
-if (!RPC || !PRIVATE_KEY || !CONTRACT_ADDRESS) {
-    console.log("❌ Missing ENV values")
-    process.exit(1)
-}
-
-// =============================
-// PROVIDER + WALLET
-// =============================
-
-const provider = new ethers.JsonRpcProvider(RPC)
-const wallet = new ethers.Wallet(PRIVATE_KEY, provider)
-
-// =============================
-// LOAD ABI (SAFE)
-// =============================
-
-const artifactPath = path.join(
-    __dirname,
-    "../artifacts/contracts/TaaSCore.sol/TaaSCore.json"
-)
-
-if (!fs.existsSync(artifactPath)) {
-    console.log("❌ ABI FILE NOT FOUND")
-    process.exit(1)
-}
-
-const artifact = JSON.parse(fs.readFileSync(artifactPath))
-const abi = artifact.abi
-
-// =============================
-// CONTRACT
-// =============================
-
-const contract = new ethers.Contract(CONTRACT_ADDRESS, abi, wallet)
-
-// =============================
-// EXPRESS APP
-// =============================
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
 
 const app = express()
-
+app.use(cors())
 app.use(express.json())
 
-// =============================
-// HOME PAGE
-// =============================
+// ---------- ENV ----------
+const RPC = process.env.RPC_URL
+const CONTRACT = process.env.CONTRACT_ADDRESS
+const PORT = process.env.PORT || 5000
 
-app.get("/", (req, res) => {
-    res.send(`
-    <h1>🔎 TaaS Product Verification</h1>
-    <form action="/verify" method="get">
-        <input name="id" placeholder="Enter Product ID"/>
-        <button>Verify</button>
-    </form>
-    `)
-})
+if (!RPC) throw new Error("RPC_URL missing")
+if (!CONTRACT) throw new Error("CONTRACT_ADDRESS missing")
 
-// =============================
-// VERIFY ROUTE
-// =============================
+// ---------- STATIC FILES ----------
+app.use(express.static(path.join(__dirname, "../public")))
 
-app.get("/verify", async (req, res) => {
-    try {
-        const id = req.query.id
+// ---------- BLOCKCHAIN ----------
+const provider = new ethers.JsonRpcProvider(RPC)
 
-        if (!id) return res.send("Missing product id")
+const artifact = JSON.parse(
+  fs.readFileSync("./artifacts/contracts/TaaSCore.sol/TaaSCore.json")
+)
 
-        const data = await contract.getProduct(id)
+const contract = new ethers.Contract(CONTRACT, artifact.abi, provider)
 
-        res.send(`
-        <h2>✅ Product Verified</h2>
-        <p><b>ID:</b> ${data[0]}</p>
-        <p><b>Brand:</b> ${data[1]}</p>
-        <p><b>Model:</b> ${data[2]}</p>
-        <p><b>Category:</b> ${data[3]}</p>
-        <p><b>Factory:</b> ${data[4]}</p>
-        <p><b>Batch:</b> ${data[5]}</p>
-        <p><b>Owner:</b> ${data[6]}</p>
-        <p><b>Created:</b> ${new Date(Number(data[7]) * 1000).toLocaleString()}</p>
-        `)
-    } catch (err) {
-        res.send("❌ Product not found")
-    }
-})
-
-// =============================
-// API ROUTE
-// =============================
-
+// ---------- API ROUTE ----------
 app.get("/product/:id", async (req, res) => {
-    try {
-        const data = await contract.getProduct(req.params.id)
+  try {
+    const data = await contract.getProduct(req.params.id)
 
-        res.json({
-            id: data[0],
-            brand: data[1],
-            model: data[2],
-            category: data[3],
-            factory: data[4],
-            batch: data[5],
-            owner: data[6],
-            created: data[7].toString()
-        })
-    } catch {
-        res.status(404).json({ error: "NOT_FOUND" })
-    }
+    res.json({
+      id: data[0],
+      brand: data[1],
+      model: data[2],
+      category: data[3],
+      factory: data[4],
+      batch: data[5],
+      owner: data[6],
+      created: Number(data[7])
+    })
+
+  } catch (err) {
+    res.status(404).json({
+      error: "Product not found",
+      details: err.reason || err.message
+    })
+  }
 })
 
-// =============================
-// SAFE SERVER START
-// =============================
-
-const server = app.listen(PORT, () => {
-    console.log(`🚀 TaaS API running at http://localhost:${PORT}`)
-})
-
-server.on("error", (err) => {
-    if (err.code === "EADDRINUSE") {
-        console.log(`⚠️ Port ${PORT} already running`)
-        console.log(`Kill process or change PORT in .env`)
-    } else {
-        console.log(err)
-    }
+// ---------- SERVER ----------
+app.listen(PORT, () => {
+  console.log(`🚀 TaaS API running on port ${PORT}`)
 })

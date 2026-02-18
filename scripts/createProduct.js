@@ -1,39 +1,74 @@
-const { ethers } = require("ethers");
-require("dotenv").config();
+import "dotenv/config";
+import { ethers } from "ethers";
+import fs from "fs";
 
-async function main() {
+// ================= CONFIG =================
 
-  const provider = new ethers.JsonRpcProvider(process.env.SEPOLIA_RPC_URL);
+const RPC = process.env.RPC_URL;
+const PRIVATE_KEY = process.env.PRIVATE_KEY;
+const CONTRACT_ADDRESS = process.env.CONTRACT_ADDRESS;
 
-  const wallet = new ethers.Wallet(process.env.PRIVATE_KEY, provider);
-
-  const abi = require("../artifacts/contracts/TaaSCore.sol/TaaSCore.json").abi;
-
-  const core = new ethers.Contract(
-    process.env.CONTRACT_ADDRESS,
-    abi,
-    wallet
-  );
-
-  const id = "PROD-" + Date.now();
-
-  console.log("Creating product:", id);
-
-  const tx = await core.createProduct(
-    id,
-    "ASJUJ",
-    "Titan",
-    "Electronics",
-    "Factory-A",
-    "Batch-1",
-    wallet.address
-  );
-
-  console.log("Waiting confirmation...");
-  await tx.wait();
-
-  console.log("✅ PRODUCT CREATED SUCCESSFULLY");
-  console.log("Product ID:", id);
+if (!RPC) {
+  console.error("❌ RPC_URL missing in .env");
+  process.exit(1);
 }
 
-main().catch(console.error);
+if (!PRIVATE_KEY) {
+  console.error("❌ PRIVATE_KEY missing in .env");
+  process.exit(1);
+}
+
+if (!CONTRACT_ADDRESS) {
+  console.error("❌ CONTRACT_ADDRESS missing in .env");
+  process.exit(1);
+}
+
+// ================= PROVIDER =================
+
+const provider = new ethers.JsonRpcProvider(RPC);
+const wallet = new ethers.Wallet(PRIVATE_KEY, provider);
+
+// ================= LOAD ABI =================
+
+const artifact = JSON.parse(
+  fs.readFileSync(
+    "./artifacts/contracts/TaaSCore.sol/TaaSCore.json",
+    "utf8"
+  )
+);
+
+const contract = new ethers.Contract(
+  CONTRACT_ADDRESS,
+  artifact.abi,
+  wallet
+);
+
+// ================= MAIN =================
+
+async function main() {
+  try {
+    const productId = "ASJUJ-" + Date.now();
+
+    console.log("🚀 Creating product:", productId);
+
+    const tx = await contract.createProduct(
+      productId,
+      "ASJUJ",
+      "Titan X",
+      "Electronics",
+      "Factory-A",
+      "Batch-1",
+      wallet.address
+    );
+
+    console.log("⏳ Waiting for confirmation...");
+    await tx.wait();
+
+    console.log("✅ PRODUCT CREATED SUCCESSFULLY");
+    console.log("🆔 ID:", productId);
+  } catch (error) {
+    console.error("❌ ERROR:", error.shortMessage || error.message);
+  }
+}
+
+main();

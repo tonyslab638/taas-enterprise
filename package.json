@@ -1,33 +1,41 @@
 {
   "name": "taas-v3",
   "version": "1.0.0",
-  "description": "ASJUJ Trust-as-a-Service V3",
+  "description": "ASJUJ TaaS Blockchain Verification System",
   "main": "index.js",
   "scripts": {
+    "start": "node scripts/apiServer.js",
+    "dev": "node scripts/apiServer.js",
     "compile": "npx hardhat compile",
-    "deploy": "npx hardhat run scripts/deploy.ts --network sepolia",
-    "panel": "node panel/server.js",
-    "verify": "node verifier/verify.js"
+    "deploy": "npx hardhat run scripts/deployClean.ts --network sepolia",
+    "console": "npx hardhat console --network sepolia",
+    "create": "node scripts/createProduct.js",
+    "verify": "node scripts/verifyProduct.js",
+    "transfer": "node scripts/transferProduct.js",
+    "batch": "node scripts/batchCreate.js",
+    "bulkqr": "node scripts/bulkQR.js",
+    "qr": "node scripts/generateQR.js"
   },
   "keywords": [
     "blockchain",
-    "taas",
-    "asjuj",
     "verification",
+    "asjuj",
+    "taas",
     "web3"
   ],
-  "author": "ASJUJ Network",
+  "author": "ASJUJ Networks",
   "license": "MIT",
   "dependencies": {
+    "cors": "^2.8.6",
     "dotenv": "^16.6.1",
-    "ethers": "^6.10.0",
-    "express": "^4.19.2",
-    "qrcode": "^1.5.4"
+    "ethers": "^6.16.0",
+    "express": "^4.22.1",
+    "qrcode": "^1.5.4",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3"
   },
   "devDependencies": {
-    "@nomicfoundation/hardhat-ethers": "^3.0.0",
-    "hardhat": "^2.22.0",
-    "ts-node": "^10.9.2",
-    "typescript": "^5.3.3"
+    "@nomicfoundation/hardhat-ethers": "^3.1.3",
+    "hardhat": "^2.22.3"
   }
 }

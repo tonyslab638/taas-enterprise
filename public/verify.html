@@ -1,146 +1,72 @@
 <!DOCTYPE html>
 <html>
 <head>
-<meta charset="UTF-8">
-<title>TaaS Verification</title>
-
-<style>
-body{
-  font-family: Arial;
-  background:#0f172a;
-  color:white;
-  text-align:center;
-  padding:40px;
-}
-
-.card{
-  background:#1e293b;
-  padding:30px;
-  border-radius:16px;
-  width:420px;
-  margin:auto;
-  box-shadow:0 0 25px rgba(0,255,150,.2);
-}
-
-.logo{
-  width:120px;
-  margin-bottom:15px;
-}
-
-.verified{
-  font-size:24px;
-  color:#22c55e;
-  margin:15px 0;
-}
-
-.fake{
-  font-size:24px;
-  color:#ef4444;
-}
-
-.row{
-  margin:10px 0;
-  text-align:left;
-}
-
-.label{
-  color:#94a3b8;
-  font-size:14px;
-}
-
-.value{
-  font-size:16px;
-}
-
-button{
-  margin-top:20px;
-  padding:10px 25px;
-  border:none;
-  border-radius:8px;
-  background:#22c55e;
-  color:white;
-  cursor:pointer;
-}
-</style>
+  <title>TaaS Product Verification</title>
+  <meta charset="UTF-8" />
+  <style>
+    body {
+      font-family: Arial;
+      text-align: center;
+      padding: 40px;
+      background: #f4f6f9;
+    }
+    .card {
+      background: white;
+      padding: 30px;
+      border-radius: 12px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+      display: inline-block;
+      min-width: 350px;
+    }
+    .success { color: green; font-weight: bold; }
+    .error { color: red; font-weight: bold; }
+  </style>
 </head>
-
 <body>
 
-<div class="card">
-
-<img src="/logo.png" class="logo">
-
-<h2>Product Verification</h2>
-
-<div id="result">Checking product...</div>
-
-<button onclick="location.reload()">Verify Another</button>
-
-</div>
+  <div class="card">
+    <h2>🔎 TaaS Product Verification</h2>
+    <div id="result">Checking product...</div>
+  </div>
 
 <script>
+  const params = new URLSearchParams(window.location.search)
+  const id = params.get("id")
 
-const id = new URLSearchParams(location.search).get("id")
+  if (!id) {
+    document.getElementById("result").innerHTML =
+      "<p class='error'>Invalid QR Code</p>"
+  } else {
 
-fetch("/api/product/" + id)
-.then(res => res.json())
-.then(data => {
+    fetch("/api/verify/" + id)
+      .then(res => res.json())
+      .then(data => {
 
-if(data.error){
-document.getElementById("result").innerHTML =
-"<div class='fake'>❌ FAKE PRODUCT</div>"
-return
-}
+        if (!data.success) {
+          document.getElementById("result").innerHTML =
+            "<p class='error'>❌ FAKE PRODUCT</p>"
+          return
+        }
 
-document.getElementById("result").innerHTML = `
-<div class="verified">✔ AUTHENTIC PRODUCT</div>
+        const p = data.product
 
-<div class="row">
-<div class="label">Product ID</div>
-<div class="value">${data.id}</div>
-</div>
-
-<div class="row">
-<div class="label">Brand</div>
-<div class="value">${data.brand}</div>
-</div>
-
-<div class="row">
-<div class="label">Model</div>
-<div class="value">${data.model}</div>
-</div>
-
-<div class="row">
-<div class="label">Category</div>
-<div class="value">${data.category}</div>
-</div>
-
-<div class="row">
-<div class="label">Factory</div>
-<div class="value">${data.factory}</div>
-</div>
-
-<div class="row">
-<div class="label">Batch</div>
-<div class="value">${data.batch}</div>
-</div>
-
-<div class="row">
-<div class="label">Owner</div>
-<div class="value">${data.owner}</div>
-</div>
-
-<div class="row">
-<div class="label">Created</div>
-<div class="value">${new Date(data.created * 1000).toLocaleString()}</div>
-</div>
-`
-})
-.catch(()=>{
-document.getElementById("result").innerHTML =
-"<div class='fake'>Server Error</div>"
-})
-
+        document.getElementById("result").innerHTML = `
+          <p class='success'>✅ AUTHENTIC PRODUCT</p>
+          <hr>
+          <p><strong>ID:</strong> ${p.id}</p>
+          <p><strong>Brand:</strong> ${p.brand}</p>
+          <p><strong>Model:</strong> ${p.model}</p>
+          <p><strong>Category:</strong> ${p.category}</p>
+          <p><strong>Factory:</strong> ${p.factory}</p>
+          <p><strong>Batch:</strong> ${p.batch}</p>
+          <p><strong>Owner:</strong> ${p.owner}</p>
+        `
+      })
+      .catch(() => {
+        document.getElementById("result").innerHTML =
+          "<p class='error'>Server Error</p>"
+      })
+  }
 </script>
 
 </body>
