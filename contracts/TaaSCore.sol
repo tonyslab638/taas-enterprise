@@ -1,143 +1,250 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
+/*
+████████╗ █████╗  █████╗ ███████╗
+╚══██╔══╝██╔══██╗██╔══██╗██╔════╝
+   ██║   ███████║███████║███████╗
+   ██║   ██╔══██║██╔══██║╚════██║
+   ██║   ██║  ██║██║  ██║███████║
+   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝
+
+Enterprise Multi-Tenant Supply Chain Core
+*/
+
 contract TaaSCore {
 
-    address public owner;
-    address public authority;
+    /*//////////////////////////////////////////////////////////////
+                            STRUCTS
+    //////////////////////////////////////////////////////////////*/
 
-    constructor() {
-        owner = msg.sender;
-    }
-
-    modifier onlyOwner() {
-        require(msg.sender == owner, "NOT_OWNER");
-        _;
-    }
-
-    modifier onlyAuthority() {
-        require(msg.sender == authority, "NOT_AUTHORITY");
-        _;
+    struct Company {
+        string name;
+        address owner;
+        bool active;
     }
 
     struct Product {
-        string gpid;
+        string id;
         string brand;
         string model;
         string category;
-        string factory;
         string batch;
-        address currentOwner;
-        uint256 createdAt;
-        bytes32 fingerprint;
+        uint256 companyId;
+        address factory;
+        address owner;
+        uint256 timestamp;
     }
+
+    /*//////////////////////////////////////////////////////////////
+                            STORAGE
+    //////////////////////////////////////////////////////////////*/
+
+    address public superAdmin;
+    bool public paused;
+
+    uint256 public companyCounter;
+
+    mapping(uint256 => Company) public companies;
+    mapping(address => uint256) public walletCompany;
+
+    mapping(uint256 => mapping(address => bool)) public factories;
+    mapping(uint256 => mapping(address => bool)) public distributors;
+    mapping(uint256 => mapping(address => bool)) public retailers;
 
     mapping(string => Product) private products;
-    mapping(bytes32 => bool) public usedFingerprints;
+    mapping(string => bool) public usedIDs;
+    mapping(string => address[]) public ownershipHistory;
 
-    event AuthoritySet(address authority);
-    event ProductCreated(string gpid, address owner, bytes32 fingerprint);
-    event OwnershipTransferred(string gpid, address from, address to);
+    /*//////////////////////////////////////////////////////////////
+                            EVENTS
+    //////////////////////////////////////////////////////////////*/
 
-    // ================= ADMIN =================
+    event CompanyCreated(uint256 id, string name, address owner);
+    event RoleUpdated(uint256 companyId, address wallet, string role, bool status);
+    event ProductCreated(string id, uint256 companyId, address owner);
+    event ProductTransferred(string id, address from, address to);
+    event Paused(bool status);
 
-    function setAuthority(address _auth) external onlyOwner {
-        require(_auth != address(0), "ZERO_ADDRESS");
-        authority = _auth;
-        emit AuthoritySet(_auth);
+    /*//////////////////////////////////////////////////////////////
+                            MODIFIERS
+    //////////////////////////////////////////////////////////////*/
+
+    modifier onlySuper() {
+        require(msg.sender == superAdmin, "NOT_SUPER");
+        _;
     }
 
-    // ================= INTERNAL VALIDATION =================
-
-    function _startsWithASJUJ(string memory str) internal pure returns (bool) {
-        bytes memory b = bytes(str);
-        bytes memory prefix = bytes("ASJUJ-");
-
-        if (b.length < prefix.length) return false;
-
-        for (uint i = 0; i < prefix.length; i++) {
-            if (b[i] != prefix[i]) return false;
-        }
-        return true;
+    modifier onlyCompanyOwner(uint256 cid) {
+        require(companies[cid].owner == msg.sender, "NOT_COMPANY_OWNER");
+        _;
     }
 
-    function _notEmpty(string memory s) internal pure returns (bool) {
-        return bytes(s).length > 0;
+    modifier notPaused() {
+        require(!paused, "PAUSED");
+        _;
     }
 
-    // ================= PRODUCT CREATE =================
+    modifier onlyFactory(uint256 cid) {
+        require(factories[cid][msg.sender], "NOT_FACTORY");
+        _;
+    }
 
-    function createProduct(
-        string memory gpid,
-        string memory brand,
-        string memory model,
-        string memory category,
-        string memory factory,
-        string memory batch,
-        address firstOwner
-    ) external onlyAuthority {
+    /*//////////////////////////////////////////////////////////////
+                            CONSTRUCTOR
+    //////////////////////////////////////////////////////////////*/
 
-        require(_startsWithASJUJ(gpid), "INVALID_GPID_PREFIX");
+    constructor() {
+        superAdmin = msg.sender;
+    }
 
-        require(_notEmpty(gpid), "EMPTY_GPID");
-        require(_notEmpty(brand), "EMPTY_BRAND");
-        require(_notEmpty(model), "EMPTY_MODEL");
-        require(_notEmpty(category), "EMPTY_CATEGORY");
-        require(_notEmpty(factory), "EMPTY_FACTORY");
-        require(_notEmpty(batch), "EMPTY_BATCH");
+    /*//////////////////////////////////////////////////////////////
+                        COMPANY MANAGEMENT
+    //////////////////////////////////////////////////////////////*/
 
-        require(firstOwner != address(0), "INVALID_OWNER");
+    function createCompany(string calldata name, address owner)
+        external
+        onlySuper
+        returns (uint256)
+    {
+        companyCounter++;
 
-        require(products[gpid].createdAt == 0, "ALREADY_EXISTS");
-
-        bytes32 hash = keccak256(
-            abi.encodePacked(gpid, brand, model, factory, batch)
+        companies[companyCounter] = Company(
+            name,
+            owner,
+            true
         );
 
-        require(!usedFingerprints[hash], "CLONE_PRODUCT");
+        walletCompany[owner] = companyCounter;
 
-        usedFingerprints[hash] = true;
+        emit CompanyCreated(companyCounter, name, owner);
+        return companyCounter;
+    }
 
-        products[gpid] = Product(
-            gpid,
+    function setCompanyStatus(uint256 cid, bool status)
+        external
+        onlySuper
+    {
+        companies[cid].active = status;
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                        ROLE MANAGEMENT
+    //////////////////////////////////////////////////////////////*/
+
+    function setFactory(uint256 cid, address wallet, bool status)
+        external
+        onlyCompanyOwner(cid)
+    {
+        factories[cid][wallet] = status;
+        emit RoleUpdated(cid, wallet, "FACTORY", status);
+    }
+
+    function setDistributor(uint256 cid, address wallet, bool status)
+        external
+        onlyCompanyOwner(cid)
+    {
+        distributors[cid][wallet] = status;
+        emit RoleUpdated(cid, wallet, "DISTRIBUTOR", status);
+    }
+
+    function setRetailer(uint256 cid, address wallet, bool status)
+        external
+        onlyCompanyOwner(cid)
+    {
+        retailers[cid][wallet] = status;
+        emit RoleUpdated(cid, wallet, "RETAILER", status);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                        PRODUCT CREATION
+    //////////////////////////////////////////////////////////////*/
+
+    function createProduct(
+        string calldata id,
+        string calldata brand,
+        string calldata model,
+        string calldata category,
+        string calldata batch,
+        address initialOwner
+    )
+        external
+        notPaused
+    {
+        uint256 cid = walletCompany[msg.sender];
+
+        require(cid != 0, "NO_COMPANY");
+        require(companies[cid].active, "COMPANY_DISABLED");
+        require(factories[cid][msg.sender], "NOT_FACTORY");
+        require(!usedIDs[id], "ID_EXISTS");
+
+        products[id] = Product(
+            id,
             brand,
             model,
             category,
-            factory,
             batch,
-            firstOwner,
-            block.timestamp,
-            hash
+            cid,
+            msg.sender,
+            initialOwner,
+            block.timestamp
         );
 
-        emit ProductCreated(gpid, firstOwner, hash);
+        usedIDs[id] = true;
+        ownershipHistory[id].push(initialOwner);
+
+        emit ProductCreated(id, cid, initialOwner);
     }
 
-    // ================= TRANSFER =================
+    /*//////////////////////////////////////////////////////////////
+                        PRODUCT TRANSFER
+    //////////////////////////////////////////////////////////////*/
 
-    function transferOwnership(
-        string memory gpid,
-        address newOwner
-    ) external {
+    function transferProduct(string calldata id, address to)
+        external
+        notPaused
+    {
+        Product storage p = products[id];
 
-        require(products[gpid].createdAt != 0, "NOT_EXIST");
-        require(msg.sender == products[gpid].currentOwner, "NOT_OWNER");
-        require(newOwner != address(0), "ZERO_ADDRESS");
+        require(p.owner == msg.sender, "NOT_OWNER");
 
-        address old = products[gpid].currentOwner;
-        products[gpid].currentOwner = newOwner;
+        p.owner = to;
+        ownershipHistory[id].push(to);
 
-        emit OwnershipTransferred(gpid, old, newOwner);
+        emit ProductTransferred(id, msg.sender, to);
     }
 
-    // ================= VIEW =================
+    /*//////////////////////////////////////////////////////////////
+                        VIEW FUNCTIONS
+    //////////////////////////////////////////////////////////////*/
 
-    function getProduct(string memory gpid)
+    function getProduct(string calldata id)
         external
         view
         returns (Product memory)
     {
-        require(products[gpid].createdAt != 0, "NOT_EXIST");
-        return products[gpid];
+        require(usedIDs[id], "NOT_FOUND");
+        return products[id];
+    }
+
+    function getHistory(string calldata id)
+        external
+        view
+        returns (address[] memory)
+    {
+        return ownershipHistory[id];
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                        ADMIN CONTROL
+    //////////////////////////////////////////////////////////////*/
+
+    function setPause(bool state) external onlySuper {
+        paused = state;
+        emit Paused(state);
+    }
+
+    function transferSuper(address newAdmin) external onlySuper {
+        superAdmin = newAdmin;
     }
 }

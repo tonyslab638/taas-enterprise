@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>TaaS Admin Dashboard</title>
+  <style>
+    body{
+      font-family:Arial;
+      background:#0f172a;
+      color:white;
+      text-align:center;
+      padding:40px;
+    }
+    .card{
+      background:#1e293b;
+      padding:25px;
+      border-radius:15px;
+      width:420px;
+      margin:auto;
+      box-shadow:0 0 20px rgba(0,0,0,.4);
+    }
+    input{
+      width:90%;
+      padding:10px;
+      margin:8px;
+      border-radius:8px;
+      border:none;
+    }
+    button{
+      padding:12px 20px;
+      border:none;
+      border-radius:10px;
+      background:#22c55e;
+      color:white;
+      font-weight:bold;
+      cursor:pointer;
+      margin-top:10px;
+    }
+    button:hover{
+      background:#16a34a;
+    }
+    #result{
+      margin-top:20px;
+      background:#020617;
+      padding:15px;
+      border-radius:10px;
+      font-size:14px;
+    }
+  </style>
+</head>
+<body>
+
+<h1>🚀 TaaS Admin Dashboard</h1>
+
+<div class="card">
+
+<input id="brand" placeholder="Brand">
+<input id="model" placeholder="Model">
+<input id="category" placeholder="Category">
+<input id="factory" placeholder="Factory">
+<input id="batch" placeholder="Batch">
+
+<button onclick="createProduct()">Create Product</button>
+
+<div id="result"></div>
+
+</div>
+
+<script>
+async function createProduct(){
+
+  const data = {
+    brand:document.getElementById("brand").value,
+    model:document.getElementById("model").value,
+    category:document.getElementById("category").value,
+    factory:document.getElementById("factory").value,
+    batch:document.getElementById("batch").value
+  }
+
+  const res = await fetch("/api/create-product",{
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify(data)
+  })
+
+  const json = await res.json()
+
+  document.getElementById("result").innerHTML =
+    "<b>Product Created</b><br>ID: "+json.id+
+    "<br><br>QR:<br><img width=180 src='"+json.qr+"'>"
+}
+</script>
+
+</body>
+</html>

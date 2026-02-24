@@ -1,72 +1,102 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>TaaS Product Verification</title>
-  <meta charset="UTF-8" />
-  <style>
-    body {
-      font-family: Arial;
-      text-align: center;
-      padding: 40px;
-      background: #f4f6f9;
-    }
-    .card {
-      background: white;
-      padding: 30px;
-      border-radius: 12px;
-      box-shadow: 0 10px 30px rgba(0,0,0,0.1);
-      display: inline-block;
-      min-width: 350px;
-    }
-    .success { color: green; font-weight: bold; }
-    .error { color: red; font-weight: bold; }
-  </style>
+<meta charset="UTF-8">
+<title>TaaS Verify</title>
+
+<style>
+body{
+font-family:Arial;
+background:#0f172a;
+color:white;
+display:flex;
+align-items:center;
+justify-content:center;
+height:100vh;
+margin:0;
+}
+
+.card{
+background:#111827;
+padding:40px;
+border-radius:20px;
+width:420px;
+box-shadow:0 0 40px rgba(0,0,0,.6);
+text-align:center;
+}
+
+.ok{color:#22c55e;font-size:22px;font-weight:bold}
+.bad{color:#ef4444;font-size:22px;font-weight:bold}
+
+.row{margin:10px 0;font-size:15px}
+.label{color:#9ca3af}
+.value{color:white;font-weight:bold}
+
+button{
+margin-top:25px;
+padding:12px 25px;
+border:none;
+border-radius:10px;
+background:#2563eb;
+color:white;
+font-weight:bold;
+cursor:pointer;
+}
+
+button:hover{background:#1d4ed8}
+</style>
 </head>
+
 <body>
 
-  <div class="card">
-    <h2>🔎 TaaS Product Verification</h2>
-    <div id="result">Checking product...</div>
-  </div>
+<div class="card" id="card">
+Loading verification...
+</div>
 
 <script>
-  const params = new URLSearchParams(window.location.search)
-  const id = params.get("id")
+const API="http://localhost:5002"
 
-  if (!id) {
-    document.getElementById("result").innerHTML =
-      "<p class='error'>Invalid QR Code</p>"
-  } else {
+const id=new URLSearchParams(location.search).get("id")
 
-    fetch("/api/verify/" + id)
-      .then(res => res.json())
-      .then(data => {
+if(!id){
+document.getElementById("card").innerHTML="<div class='bad'>Invalid QR</div>"
+throw new Error("no id")
+}
 
-        if (!data.success) {
-          document.getElementById("result").innerHTML =
-            "<p class='error'>❌ FAKE PRODUCT</p>"
-          return
-        }
+fetch(API+"/api/product/"+id)
+.then(r=>r.json())
+.then(data=>{
 
-        const p = data.product
+if(data.error){
+document.getElementById("card").innerHTML=`
+<div class="bad">❌ FAKE PRODUCT</div>
+<div class="row">Not Registered On Blockchain</div>
+<button onclick="location.reload()">Try Again</button>
+`
+return
+}
 
-        document.getElementById("result").innerHTML = `
-          <p class='success'>✅ AUTHENTIC PRODUCT</p>
-          <hr>
-          <p><strong>ID:</strong> ${p.id}</p>
-          <p><strong>Brand:</strong> ${p.brand}</p>
-          <p><strong>Model:</strong> ${p.model}</p>
-          <p><strong>Category:</strong> ${p.category}</p>
-          <p><strong>Factory:</strong> ${p.factory}</p>
-          <p><strong>Batch:</strong> ${p.batch}</p>
-          <p><strong>Owner:</strong> ${p.owner}</p>
-        `
-      })
-      .catch(() => {
-        document.getElementById("result").innerHTML =
-          "<p class='error'>Server Error</p>"
-      })
-  }
+document.getElementById("card").innerHTML=`
+<div class="ok">✅ VERIFIED PRODUCT</div>
+
+<div class="row"><span class="label">ID:</span><br><span class="value">${data.id}</span></div>
+<div class="row"><span class="label">Brand:</span><br><span class="value">${data.brand}</span></div>
+<div class="row"><span class="label">Model:</span><br><span class="value">${data.model}</span></div>
+<div class="row"><span class="label">Category:</span><br><span class="value">${data.category}</span></div>
+<div class="row"><span class="label">Factory:</span><br><span class="value">${data.factory}</span></div>
+<div class="row"><span class="label">Batch:</span><br><span class="value">${data.batch}</span></div>
+<div class="row"><span class="label">Owner:</span><br><span class="value">${data.owner}</span></div>
+
+<button onclick="location.href='/'">Verify Another</button>
+
+<div style="margin-top:15px;font-size:12px;color:#64748b">
+Secured by TaaS Blockchain Layer
+</div>
+`
+})
+.catch(()=>{
+document.getElementById("card").innerHTML="<div class='bad'>Server Error</div>"
+})
 </script>
 
 </body>

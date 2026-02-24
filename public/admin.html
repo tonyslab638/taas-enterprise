@@ -1,55 +1,229 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-<title>TaaS Admin Panel</title>
+<meta charset="UTF-8">
+<title>TaaS Admin Dashboard</title>
+
 <style>
-body{font-family:Arial;background:#0f172a;color:white;text-align:center;padding:40px}
-input,button{padding:10px;margin:5px;border-radius:6px;border:none}
-button{background:#22c55e;color:white;font-weight:bold;cursor:pointer}
-.card{background:#1e293b;padding:20px;border-radius:12px;width:400px;margin:auto}
+body{
+font-family:Segoe UI;
+background:#0f172a;
+color:#e2e8f0;
+display:flex;
+justify-content:center;
+padding:40px;
+}
+
+.container{
+width:420px;
+background:#1e293b;
+padding:30px;
+border-radius:14px;
+box-shadow:0 0 25px rgba(0,0,0,0.6);
+}
+
+h1{
+text-align:center;
+margin-bottom:20px;
+}
+
+input,button{
+width:100%;
+padding:12px;
+margin-top:10px;
+border:none;
+border-radius:8px;
+font-size:15px;
+}
+
+input{
+background:#0f172a;
+color:white;
+border:1px solid #334155;
+}
+
+button{
+background:#22c55e;
+color:white;
+font-weight:bold;
+cursor:pointer;
+transition:.2s;
+}
+
+button:hover{
+background:#16a34a;
+}
+
+.secondary{
+background:#3b82f6;
+}
+
+.secondary:hover{
+background:#2563eb;
+}
+
+.status{
+margin-top:15px;
+font-size:14px;
+text-align:center;
+}
+
+.console{
+margin-top:20px;
+background:black;
+color:#22c55e;
+padding:15px;
+border-radius:10px;
+font-size:13px;
+height:160px;
+overflow:auto;
+white-space:pre-wrap;
+}
+
+.section{
+margin-top:25px;
+}
+
+.label{
+font-size:13px;
+color:#94a3b8;
+margin-top:10px;
+}
 </style>
 </head>
+
 <body>
 
-<h1>🛠 TaaS Admin Panel</h1>
+<div class="container">
 
-<div class="card">
+<h1>🚀 TaaS Dashboard</h1>
 
-<h3>Create Product</h3>
+<!-- LOGIN -->
+<div class="section">
+<div class="label">Admin Wallet</div>
+<input id="wallet" placeholder="0x...">
 
-<input id="brand" placeholder="Brand"><br>
-<input id="model" placeholder="Model"><br>
-<input id="category" placeholder="Category"><br>
-<input id="factory" placeholder="Factory"><br>
-<input id="batch" placeholder="Batch"><br>
-<input id="owner" placeholder="Owner Address"><br>
+<button onclick="login()">Login</button>
+</div>
 
-<button onclick="create()">Create</button>
+<!-- CREATE -->
+<div class="section">
+<div class="label">Brand</div>
+<input id="brand" value="ASJUJ">
 
-<p id="result"></p>
+<div class="label">Model</div>
+<input id="model" value="Titan X">
+
+<div class="label">Category</div>
+<input id="category" value="Electronics">
+
+<button class="secondary" onclick="createProduct()">Create Product</button>
+</div>
+
+<div class="status" id="status">Not logged in</div>
+
+<div class="console" id="console">
+System ready...
+</div>
 
 </div>
 
 <script>
-async function create(){
-const data={
-brand:brand.value,
-model:model.value,
-category:category.value,
-factory:factory.value,
-batch:batch.value,
-owner:owner.value
+
+let token = localStorage.getItem("taas_token")
+
+if(token){
+document.getElementById("status").textContent="✅ Logged in"
 }
 
-const res=await fetch("/create",{
+function log(msg){
+const box=document.getElementById("console")
+box.textContent+="\n"+msg
+box.scrollTop=box.scrollHeight
+}
+
+async function login(){
+
+const wallet=document.getElementById("wallet").value
+
+if(!wallet){
+alert("Enter wallet")
+return
+}
+
+log("Logging in...")
+
+try{
+
+const res=await fetch("/api/login",{
 method:"POST",
 headers:{"Content-Type":"application/json"},
-body:JSON.stringify(data)
+body:JSON.stringify({wallet})
 })
 
-const j=await res.json()
-result.innerText=JSON.stringify(j,null,2)
+const data=await res.json()
+
+if(!data.token){
+log("Login failed")
+log(JSON.stringify(data,null,2))
+return
 }
+
+token=data.token
+localStorage.setItem("taas_token",token)
+
+document.getElementById("status").textContent="✅ Logged in"
+
+log("Login success")
+log(token.substring(0,40)+"...")
+
+}catch(err){
+log("Login error")
+log(err.message)
+}
+
+}
+
+async function createProduct(){
+
+if(!token){
+alert("Login first")
+return
+}
+
+const brand=document.getElementById("brand").value
+const model=document.getElementById("model").value
+const category=document.getElementById("category").value
+
+log("Creating product...")
+
+try{
+
+const res=await fetch("/api/create",{
+method:"POST",
+headers:{
+"Content-Type":"application/json",
+"Authorization":"Bearer "+token
+},
+body:JSON.stringify({brand,model,category})
+})
+
+const data=await res.json()
+
+log(JSON.stringify(data,null,2))
+
+if(data.id){
+log("✅ Product created successfully")
+log("Verify → "+data.verifyURL)
+}
+
+}catch(err){
+log("Error:")
+log(err.message)
+}
+
+}
+
 </script>
 
 </body>
