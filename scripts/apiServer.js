@@ -1,314 +1,296 @@
-import express from "express"
-import dotenv from "dotenv"
-import cors from "cors"
-import jwt from "jsonwebtoken"
-import crypto from "crypto"
-import QRCode from "qrcode"
-import { MongoClient } from "mongodb"
-import { ethers } from "ethers"
+import express from "express";
+import cors from "cors";
+import dotenv from "dotenv";
+import jwt from "jsonwebtoken";
+import crypto from "crypto";
+import { MongoClient } from "mongodb";
 
-dotenv.config()
+dotenv.config();
 
-/* ================= ENV ================= */
+const app = express();
+app.use(cors());
+app.use(express.json());
+
+/* ===============================
+   ENVIRONMENT VARIABLES CHECK
+================================ */
 
 const {
-  PORT = 5003,
   MONGO_URI,
   JWT_SECRET,
   QR_SECRET,
-  ADMIN_WALLET
-} = process.env
+  ADMIN_WALLET,
+  PORT
+} = process.env;
 
-if (!MONGO_URI || !JWT_SECRET || !QR_SECRET || !ADMIN_WALLET) {
-  console.error("❌ Missing required ENV variables")
-  process.exit(1)
+if (!MONGO_URI) {
+  console.error("❌ MONGO_URI missing");
+  process.exit(1);
 }
 
-/* ================= APP INIT ================= */
+if (!JWT_SECRET) {
+  console.error("❌ JWT_SECRET missing");
+  process.exit(1);
+}
 
-const app = express()
+if (!QR_SECRET) {
+  console.error("❌ QR_SECRET missing");
+  process.exit(1);
+}
 
-app.use(cors({
-  origin: "http://localhost:3000",
-  methods: ["GET", "POST"],
-  allowedHeaders: ["Content-Type", "Authorization"]
-}))
+/* ===============================
+   DATABASE CONNECTION
+================================ */
 
-app.use(express.json())
-
-/* ================= DATABASE ================= */
-
-let db
+let db;
 
 async function connectDB() {
   try {
-    const client = new MongoClient(MONGO_URI)
-    await client.connect()
-    db = client.db("taas_enterprise")
-    console.log("✅ MongoDB Connected")
+    const client = new MongoClient(MONGO_URI);
+    await client.connect();
+    db = client.db("taas");
+    console.log("✅ MongoDB Connected");
   } catch (err) {
-    console.error("❌ MongoDB Connection Failed:", err.message)
-    process.exit(1)
+    console.error("❌ MongoDB Connection Failed:", err.message);
+    process.exit(1);
   }
 }
 
-/* ================= HELPERS ================= */
+await connectDB();
+
+/* ===============================
+   UTILITIES
+================================ */
 
 function generateProductId() {
-  const random = Math.floor(10000000 + Math.random() * 90000000)
-  return `ASJUJ-${random}`
+  const random = Math.floor(10000000 + Math.random() * 90000000);
+  return `ASJUJ-${random}`;
 }
 
-function generateSignature(id) {
+function signQR(id) {
   return crypto
     .createHmac("sha256", QR_SECRET)
     .update(id)
-    .digest("hex")
+    .digest("hex");
 }
 
-function generateNonce() {
-  return crypto.randomBytes(16).toString("hex")
+function verifyQR(id, sig) {
+  const expected = signQR(id);
+  return expected === sig;
 }
 
-function verifyAdmin(req) {
-  const header = req.headers.authorization
-  if (!header) return false
+function authMiddleware(req, res, next) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader) {
+    return res.status(401).json({ success: false, error: "No token" });
+  }
+
+  const token = authHeader.split(" ")[1];
+
   try {
-    const token = header.split(" ")[1]
-    jwt.verify(token, JWT_SECRET)
-    return true
+    const decoded = jwt.verify(token, JWT_SECRET);
+    req.user = decoded;
+    next();
   } catch {
-    return false
+    return res.status(401).json({ success: false, error: "Invalid token" });
   }
 }
 
-/* ================= ROOT ================= */
+/* ===============================
+   HEALTH CHECK
+================================ */
 
 app.get("/", (req, res) => {
-  res.json({ success: true, message: "TaaS Enterprise Secure API Live" })
-})
+  res.json({
+    success: true,
+    message: "TaaS Enterprise Secure API Live"
+  });
+});
 
-/* ================= AUTH ================= */
+/* ===============================
+   AUTH
+================================ */
 
 app.post("/auth", (req, res) => {
-  const { wallet } = req.body
-  if (!wallet) return res.json({ success: false })
+  const { wallet } = req.body;
 
-  if (wallet.toLowerCase() !== ADMIN_WALLET.toLowerCase()) {
-    return res.json({ success: false, error: "Unauthorized wallet" })
+  if (!wallet) {
+    return res.json({ success: false, error: "Wallet required" });
   }
 
-  const token = jwt.sign({ role: "admin" }, JWT_SECRET, {
-    expiresIn: "7d"
-  })
-
-  res.json({ success: true, token })
-})
-
-/* ================= CREATE PRODUCT ================= */
-
-app.post("/api/create", async (req, res) => {
-  if (!verifyAdmin(req))
-    return res.status(401).json({ success: false })
-
-  const { brand, model, category, batch } = req.body
-  if (!brand || !model || !category || !batch)
-    return res.json({ success: false, error: "Missing fields" })
-
-  const id = generateProductId()
-  const sig = generateSignature(id)
-
-  const verifyUrl = `http://localhost:3000/verify?id=${id}&sig=${sig}`
-  const qr = await QRCode.toDataURL(verifyUrl)
-
-  const product = {
-    id,
-    brand,
-    model,
-    category,
-    batch,
-    owner: ADMIN_WALLET,
-    ownershipHistory: [],
-    scans: 0,
-    scanHistory: [],
-    riskScore: 0,
-    suspicious: false,
-    created: new Date()
+  if (wallet.toLowerCase() !== ADMIN_WALLET?.toLowerCase()) {
+    return res.json({ success: false, error: "Unauthorized wallet" });
   }
 
-  await db.collection("products").insertOne(product)
+  const token = jwt.sign(
+    { role: "admin", wallet },
+    JWT_SECRET,
+    { expiresIn: "7d" }
+  );
 
-  res.json({ success: true, id, verifyUrl, qr })
-})
+  res.json({ success: true, token });
+});
 
-/* ================= VERIFY + FRAUD ENGINE ================= */
+/* ===============================
+   CREATE PRODUCT
+================================ */
+
+app.post("/api/create", authMiddleware, async (req, res) => {
+  try {
+    const { brand, model, category, batch } = req.body;
+
+    if (!brand || !model || !category || !batch) {
+      return res.json({ success: false, error: "Missing fields" });
+    }
+
+    const id = generateProductId();
+    const sig = signQR(id);
+
+    const product = {
+      id,
+      brand,
+      model,
+      category,
+      batch,
+      owner: ADMIN_WALLET,
+      created: new Date(),
+      scans: 0,
+      fraudFlags: []
+    };
+
+    await db.collection("products").insertOne(product);
+
+    const verifyUrl = `${req.protocol}://${req.get("host")}/api/verify?id=${id}&sig=${sig}`;
+
+    res.json({
+      success: true,
+      id,
+      verifyUrl
+    });
+
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/* ===============================
+   VERIFY PRODUCT
+================================ */
 
 app.get("/api/verify", async (req, res) => {
-  const { id, sig } = req.query
-  if (!id || !sig) return res.json({ success: false })
+  try {
+    const { id, sig } = req.query;
 
-  if (generateSignature(id) !== sig)
-    return res.json({ success: true, valid: false })
-
-  const product = await db.collection("products").findOne({ id })
-  if (!product)
-    return res.json({ success: true, valid: false })
-
-  const now = new Date()
-  const ip =
-    req.headers["x-forwarded-for"] ||
-    req.socket.remoteAddress ||
-    "unknown"
-
-  const newScan = { ip, time: now }
-
-  const updatedHistory = [...(product.scanHistory || []), newScan]
-
-  let riskScore = product.riskScore || 0
-  let suspicious = false
-
-  // Fraud Rule 1: Rapid Scans
-  const fiveMinAgo = new Date(now.getTime() - 5 * 60000)
-  const recentScans = updatedHistory.filter(
-    s => new Date(s.time) > fiveMinAgo
-  )
-  if (recentScans.length > 5) riskScore++
-
-  // Fraud Rule 2: Multiple IPs
-  const uniqueIPs = new Set(updatedHistory.map(s => s.ip))
-  if (uniqueIPs.size > 3) riskScore++
-
-  // Fraud Rule 3: High Total Scans
-  if (updatedHistory.length > 20) riskScore++
-
-  if (riskScore >= 3) suspicious = true
-
-  await db.collection("products").updateOne(
-    { id },
-    {
-      $set: {
-        scanHistory: updatedHistory,
-        riskScore,
-        suspicious
-      },
-      $inc: { scans: 1 }
+    if (!id || !sig) {
+      return res.json({ success: false, valid: false });
     }
-  )
 
-  res.json({
-    success: true,
-    valid: true,
-    suspicious,
-    riskScore,
-    product: {
-      id: product.id,
-      brand: product.brand,
-      model: product.model,
-      category: product.category,
-      owner: product.owner,
-      scans: (product.scans || 0) + 1,
-      riskScore,
-      suspicious,
-      created: product.created
+    if (!verifyQR(id, sig)) {
+      return res.json({
+        success: true,
+        valid: false,
+        reason: "Invalid signature"
+      });
     }
-  })
-})
 
-/* ================= WALLET CHALLENGE ================= */
+    const product = await db.collection("products").findOne({ id });
 
-app.post("/api/challenge", async (req, res) => {
-  const { wallet } = req.body
-  if (!wallet) return res.json({ success: false })
-
-  const nonce = generateNonce()
-
-  await db.collection("nonces").updateOne(
-    { wallet },
-    { $set: { nonce } },
-    { upsert: true }
-  )
-
-  const message = `TaaS Ownership Verification\nNonce: ${nonce}`
-  res.json({ success: true, message })
-})
-
-/* ================= SECURE CLAIM ================= */
-
-app.post("/api/claim-secure", async (req, res) => {
-  const { id, wallet, signature } = req.body
-  if (!id || !wallet || !signature)
-    return res.json({ success: false })
-
-  const nonceRecord = await db.collection("nonces").findOne({ wallet })
-  if (!nonceRecord)
-    return res.json({ success: false, error: "Nonce not found" })
-
-  const message = `TaaS Ownership Verification\nNonce: ${nonceRecord.nonce}`
-  const recovered = ethers.verifyMessage(message, signature)
-
-  if (recovered.toLowerCase() !== wallet.toLowerCase())
-    return res.json({ success: false, error: "Invalid signature" })
-
-  const product = await db.collection("products").findOne({ id })
-  if (!product)
-    return res.json({ success: false })
-
-  await db.collection("products").updateOne(
-    { id },
-    {
-      $set: { owner: wallet },
-      $push: {
-        ownershipHistory: {
-          from: product.owner,
-          to: wallet,
-          date: new Date()
-        }
-      }
+    if (!product) {
+      return res.json({ success: true, valid: false });
     }
-  )
 
-  await db.collection("nonces").deleteOne({ wallet })
+    // Increase scan count
+    await db.collection("products").updateOne(
+      { id },
+      { $inc: { scans: 1 } }
+    );
 
-  res.json({ success: true, message: "Ownership claimed securely" })
-})
+    res.json({
+      success: true,
+      valid: true,
+      product
+    });
 
-/* ================= ADMIN DASHBOARD ================= */
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
 
-app.get("/api/admin/dashboard", async (req, res) => {
-  if (!verifyAdmin(req))
-    return res.status(401).json({ success: false })
+/* ===============================
+   CLAIM OWNERSHIP
+================================ */
 
-  const totalProducts = await db.collection("products").countDocuments()
+app.post("/api/claim", async (req, res) => {
+  try {
+    const { id, wallet } = req.body;
 
-  const totalScansAgg = await db.collection("products").aggregate([
-    { $group: { _id: null, total: { $sum: "$scans" } } }
-  ]).toArray()
+    if (!id || !wallet) {
+      return res.json({ success: false, error: "Missing fields" });
+    }
 
-  const totalScans = totalScansAgg[0]?.total || 0
+    const product = await db.collection("products").findOne({ id });
 
-  const suspiciousProducts = await db.collection("products")
-    .find({ suspicious: true })
-    .sort({ riskScore: -1 })
-    .limit(10)
-    .toArray()
+    if (!product) {
+      return res.json({ success: false, error: "Not found" });
+    }
 
-  res.json({
-    success: true,
-    stats: {
-      totalProducts,
-      totalScans,
-      suspiciousCount: suspiciousProducts.length
-    },
-    suspiciousProducts
-  })
-})
+    if (product.owner !== ADMIN_WALLET) {
+      return res.json({ success: false, error: "Already claimed" });
+    }
 
-/* ================= START SERVER ================= */
+    await db.collection("products").updateOne(
+      { id },
+      { $set: { owner: wallet } }
+    );
 
-connectDB().then(() => {
-  app.listen(PORT, () => {
-    console.log("\n🚀 TaaS Secure Enterprise Server Live")
-    console.log("🌐 Port:", PORT)
-    console.log("📦 Database: Connected\n")
-  })
-})
+    res.json({ success: true, message: "Ownership claimed" });
+
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/* ===============================
+   TRANSFER OWNERSHIP
+================================ */
+
+app.post("/api/transfer", async (req, res) => {
+  try {
+    const { id, fromWallet, toWallet } = req.body;
+
+    if (!id || !fromWallet || !toWallet) {
+      return res.json({ success: false, error: "Missing fields" });
+    }
+
+    const product = await db.collection("products").findOne({ id });
+
+    if (!product) {
+      return res.json({ success: false, error: "Not found" });
+    }
+
+    if (product.owner.toLowerCase() !== fromWallet.toLowerCase()) {
+      return res.json({ success: false, error: "Not owner" });
+    }
+
+    await db.collection("products").updateOne(
+      { id },
+      { $set: { owner: toWallet } }
+    );
+
+    res.json({ success: true, message: "Ownership transferred" });
+
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/* ===============================
+   START SERVER
+================================ */
+
+const serverPort = PORT || 5003;
+
+app.listen(serverPort, () => {
+  console.log("🚀 TaaS Secure Enterprise Server Live");
+  console.log("🌐 Port:", serverPort);
+});
