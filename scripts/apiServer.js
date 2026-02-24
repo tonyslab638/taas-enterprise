@@ -1,69 +1,102 @@
 import express from "express"
+import mongoose from "mongoose"
 import cors from "cors"
-import dotenv from "dotenv"
-import jwt from "jsonwebtoken"
 import crypto from "crypto"
-import { MongoClient } from "mongodb"
+import jwt from "jsonwebtoken"
+import dotenv from "dotenv"
 
 dotenv.config()
 
 const app = express()
+
+/* =========================
+   ENV VALIDATION
+========================= */
+
+const {
+  MONGO_URI,
+  JWT_SECRET,
+  QR_SECRET,
+  ADMIN_WALLET,
+  FRONTEND_URL,
+  PORT
+} = process.env
+
+if (!MONGO_URI) {
+  console.error("❌ MONGO_URI missing")
+  process.exit(1)
+}
+
+if (!JWT_SECRET || !QR_SECRET || !ADMIN_WALLET) {
+  console.error("❌ Required environment variables missing")
+  process.exit(1)
+}
+
+/* =========================
+   MONGODB CONNECTION
+========================= */
+
+mongoose.connect(MONGO_URI, {
+  serverSelectionTimeoutMS: 10000,
+})
+.then(() => {
+  console.log("✅ MongoDB Connected")
+})
+.catch((err) => {
+  console.error("❌ MongoDB Connection Failed:", err.message)
+  process.exit(1)
+})
+
+/* =========================
+   MONGOOSE MODEL
+========================= */
+
+const productSchema = new mongoose.Schema({
+  id: { type: String, unique: true },
+  brand: String,
+  model: String,
+  category: String,
+  batch: String,
+  owner: String,
+  created: Date,
+  scans: { type: Number, default: 0 },
+  fraudFlags: { type: [String], default: [] }
+})
+
+const Product = mongoose.model("Product", productSchema)
+
+/* =========================
+   CORS CONFIGURATION
+========================= */
+
+const allowedOrigins = [
+  "http://localhost:3000",
+  "https://taas-enterprise.vercel.app"
+]
+
+if (FRONTEND_URL) {
+  allowedOrigins.push(FRONTEND_URL)
+}
+
+app.use(cors({
+  origin: function (origin, callback) {
+    if (!origin) return callback(null, true)
+    if (allowedOrigins.includes(origin)) {
+      callback(null, true)
+    } else {
+      callback(new Error("CORS not allowed"))
+    }
+  },
+  methods: ["GET", "POST"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+  credentials: true
+}))
+
 app.use(express.json())
 
 /* =========================
-   ENV CONFIG
+   HELPER FUNCTIONS
 ========================= */
-
-const PORT = process.env.PORT || 5003
-const MONGO_URI = process.env.MONGO_URI
-const JWT_SECRET = process.env.JWT_SECRET
-const QR_SECRET = process.env.QR_SECRET
-const ADMIN_WALLET = process.env.ADMIN_WALLET?.toLowerCase()
-const FRONTEND_URL =
-  process.env.FRONTEND_URL || "http://localhost:3000"
-
-/* =========================
-   CORS CONFIG
-========================= */
-
-app.use(
-  cors({
-    origin: ["http://localhost:3000", FRONTEND_URL],
-    methods: ["GET", "POST"],
-    credentials: true
-  })
-)
-
-/* =========================
-   DATABASE
-========================= */
-
-let db
-let productsCollection
-
-async function connectDB() {
-  try {
-    const client = new MongoClient(MONGO_URI)
-    await client.connect()
-
-    db = client.db("taas_enterprise")
-    productsCollection = db.collection("products")
-
-    console.log("✅ MongoDB Connected")
-  } catch (err) {
-    console.error("❌ MongoDB Connection Failed:", err.message)
-    process.exit(1)
-  }
-}
-
-/* =========================
-   UTILITIES
-========================= */
-
-function generateId(brand) {
-  const random = Math.floor(10000000 + Math.random() * 90000000)
-  return `${brand}-${random}`
-}
 
 function generateSignature(id) {
   return crypto
@@ -79,61 +112,53 @@ function verifySignature(id, sig) {
 
 function authenticateToken(req, res, next) {
   const authHeader = req.headers.authorization
-  const token = authHeader && authHeader.split(" ")[1]
+  if (!authHeader) return res.status(401).json({ success: false })
 
-  if (!token) {
-    return res.status(401).json({ success: false, error: "No token" })
-  }
+  const token = authHeader.split(" ")[1]
 
-  try {
-    jwt.verify(token, JWT_SECRET)
+  jwt.verify(token, JWT_SECRET, (err, user) => {
+    if (err) return res.status(403).json({ success: false })
+    req.user = user
     next()
-  } catch {
-    return res.status(403).json({ success: false, error: "Invalid token" })
-  }
+  })
 }
 
 /* =========================
    ROUTES
 ========================= */
 
-/* Health Check */
 app.get("/", (req, res) => {
-  res.json({ status: "TaaS Secure Enterprise API Live" })
+  res.json({ status: "TaaS Enterprise API Live" })
 })
 
-/* Admin Authentication */
+/* === ADMIN AUTH === */
+
 app.post("/auth", (req, res) => {
   const { wallet } = req.body
 
-  if (!wallet || wallet.toLowerCase() !== ADMIN_WALLET) {
-    return res
-      .status(401)
-      .json({ success: false, error: "Unauthorized wallet" })
+  if (!wallet || wallet.toLowerCase() !== ADMIN_WALLET.toLowerCase()) {
+    return res.status(401).json({ success: false })
   }
 
-  const token = jwt.sign({ role: "admin" }, JWT_SECRET, {
-    expiresIn: "7d"
-  })
+  const token = jwt.sign(
+    { role: "admin" },
+    JWT_SECRET,
+    { expiresIn: "7d" }
+  )
 
   res.json({ success: true, token })
 })
 
-/* Create Product */
+/* === CREATE PRODUCT === */
+
 app.post("/api/create", authenticateToken, async (req, res) => {
   try {
     const { brand, model, category, batch } = req.body
 
-    if (!brand || !model || !category || !batch) {
-      return res
-        .status(400)
-        .json({ success: false, error: "Missing fields" })
-    }
-
-    const id = generateId(brand)
+    const id = `${brand}-${Math.floor(Math.random() * 100000000)}`
     const signature = generateSignature(id)
 
-    const product = {
+    const newProduct = await Product.create({
       id,
       brand,
       model,
@@ -141,11 +166,8 @@ app.post("/api/create", authenticateToken, async (req, res) => {
       batch,
       owner: ADMIN_WALLET,
       created: new Date(),
-      scans: 0,
-      fraudFlags: []
-    }
-
-    await productsCollection.insertOne(product)
+      scans: 0
+    })
 
     const verifyUrl = `${FRONTEND_URL}/verify?id=${id}&sig=${signature}`
 
@@ -154,12 +176,15 @@ app.post("/api/create", authenticateToken, async (req, res) => {
       id,
       verifyUrl
     })
+
   } catch (err) {
-    res.status(500).json({ success: false, error: "Create failed" })
+    console.error("Create error:", err.message)
+    res.status(500).json({ success: false })
   }
 })
 
-/* Verify Product */
+/* === VERIFY PRODUCT === */
+
 app.get("/api/verify", async (req, res) => {
   try {
     const { id, sig } = req.query
@@ -169,36 +194,27 @@ app.get("/api/verify", async (req, res) => {
     }
 
     if (!verifySignature(id, sig)) {
-      return res.json({
-        success: true,
-        valid: false,
-        reason: "Invalid signature"
-      })
+      return res.json({ success: false, valid: false })
     }
 
-    const product = await productsCollection.findOne({ id })
+    const product = await Product.findOne({ id })
 
     if (!product) {
-      return res.json({
-        success: true,
-        valid: false,
-        reason: "Product not found"
-      })
+      return res.json({ success: false, valid: false })
     }
 
-    /* Increment Scan Count */
-    await productsCollection.updateOne(
-      { id },
-      { $inc: { scans: 1 } }
-    )
+    product.scans += 1
+    await product.save()
 
     res.json({
       success: true,
       valid: true,
       product
     })
-  } catch {
-    res.status(500).json({ success: false, valid: false })
+
+  } catch (err) {
+    console.error("Verify error:", err.message)
+    res.status(500).json({ success: false })
   }
 })
 
@@ -206,9 +222,9 @@ app.get("/api/verify", async (req, res) => {
    START SERVER
 ========================= */
 
-connectDB().then(() => {
-  app.listen(PORT, () => {
-    console.log("🚀 TaaS Secure Enterprise Server Live")
-    console.log(`🌐 Port: ${PORT}`)
-  })
+const serverPort = PORT || 5003
+
+app.listen(serverPort, () => {
+  console.log("🚀 TaaS Secure Enterprise Server Live")
+  console.log(`🌐 Port: ${serverPort}`)
 })
