@@ -2,91 +2,174 @@
 
 import { useState } from "react"
 
-const API = "http://localhost:5003"
+const API_BASE =
+  process.env.NEXT_PUBLIC_API_URL ||
+  "https://taas-api-1nxo.onrender.com"
 
-export default function Page() {
+export default function Home() {
   const [wallet, setWallet] = useState("")
-  const [status, setStatus] = useState("Idle")
-
-  const [brand, setBrand] = useState("")
+  const [token, setToken] = useState("")
+  const [status, setStatus] = useState("")
+  const [verifyUrl, setVerifyUrl] = useState("")
+  const [brand, setBrand] = useState("ASJUJ")
   const [model, setModel] = useState("")
   const [category, setCategory] = useState("")
   const [batch, setBatch] = useState("")
 
-  async function connectWallet() {
-    try {
-      if (!window.ethereum) return alert("Install MetaMask")
+  async function authenticate() {
+    setStatus("Authenticating...")
 
-      const accounts = await window.ethereum.request({
-        method: "eth_requestAccounts"
+    try {
+      const res = await fetch(`${API_BASE}/auth`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ wallet })
       })
 
-      setWallet(accounts[0])
-      setStatus("Wallet Connected")
+      if (!res.ok) throw new Error()
 
-      // auto fetch JWT
-      const res = await fetch(`${API}/auth`)
       const data = await res.json()
-
-      localStorage.setItem("token", data.token)
-
-      setStatus("Authenticated")
-    } catch (err) {
-      setStatus("Wallet connection failed")
+      setToken(data.token)
+      setStatus("✅ Admin Authenticated")
+    } catch {
+      setStatus("❌ Authentication Failed")
     }
   }
 
-  async function mint() {
+  async function createProduct() {
+    if (!token) {
+      setStatus("❌ Authenticate First")
+      return
+    }
+
+    setStatus("Creating product...")
+    setVerifyUrl("")
+
     try {
-      setStatus("Minting...")
-
-      const token = localStorage.getItem("token")
-
-      const res = await fetch(`${API}/api/create`, {
+      const res = await fetch(`${API_BASE}/api/create`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`
         },
-        body: JSON.stringify({ brand, model, category, batch })
+        body: JSON.stringify({
+          brand,
+          model,
+          category,
+          batch
+        })
       })
+
+      if (!res.ok) throw new Error()
 
       const data = await res.json()
 
-      if (!res.ok) throw new Error(data.error)
-
-      setStatus("✅ Product Minted ID: " + data.product.id)
-    } catch (err:any) {
-      setStatus("❌ " + err.message)
+      setStatus(`✅ Product Created: ${data.id}`)
+      setVerifyUrl(data.verifyUrl)
+    } catch {
+      setStatus("❌ Product Creation Failed")
     }
   }
 
   return (
-    <div style={{padding:40,fontFamily:"sans-serif"}}>
-      <h1>ASJUJ GROUPS</h1>
-      <p>Product Truth Infrastructure</p>
+    <div style={{ padding: 40, maxWidth: 600 }}>
+      <h1 style={{ fontSize: 28, fontWeight: "bold", marginBottom: 30 }}>
+        TaaS Enterprise Dashboard
+      </h1>
 
-      <hr/>
+      {/* Admin Auth */}
+      <div style={{ marginBottom: 40 }}>
+        <h2 style={{ fontSize: 20, marginBottom: 10 }}>
+          Admin Authentication
+        </h2>
 
-      <h2>Company Authentication</h2>
-      <button onClick={connectWallet}>Connect Wallet</button>
-      <p>{wallet}</p>
+        <input
+          placeholder="Admin Wallet"
+          value={wallet}
+          onChange={(e) => setWallet(e.target.value)}
+          style={{ width: "100%", padding: 10, marginBottom: 10 }}
+        />
 
-      <hr/>
+        <button
+          onClick={authenticate}
+          style={{
+            width: "100%",
+            padding: 10,
+            background: "black",
+            color: "white",
+            cursor: "pointer"
+          }}
+        >
+          Authenticate Admin
+        </button>
+      </div>
 
-      <h2>Create Product Identity</h2>
+      {/* Product Creation */}
+      <div>
+        <h2 style={{ fontSize: 20, marginBottom: 10 }}>
+          Create Product
+        </h2>
 
-      <input placeholder="Brand" onChange={e=>setBrand(e.target.value)} /><br/>
-      <input placeholder="Model" onChange={e=>setModel(e.target.value)} /><br/>
-      <input placeholder="Category" onChange={e=>setCategory(e.target.value)} /><br/>
-      <input placeholder="Batch" onChange={e=>setBatch(e.target.value)} /><br/>
+        <input
+          placeholder="Brand"
+          value={brand}
+          onChange={(e) => setBrand(e.target.value)}
+          style={{ width: "100%", padding: 10, marginBottom: 10 }}
+        />
 
-      <button onClick={mint}>Mint Product</button>
+        <input
+          placeholder="Model"
+          value={model}
+          onChange={(e) => setModel(e.target.value)}
+          style={{ width: "100%", padding: 10, marginBottom: 10 }}
+        />
 
-      <hr/>
+        <input
+          placeholder="Category"
+          value={category}
+          onChange={(e) => setCategory(e.target.value)}
+          style={{ width: "100%", padding: 10, marginBottom: 10 }}
+        />
 
-      <h2>Status</h2>
-      <p>{status}</p>
+        <input
+          placeholder="Batch"
+          value={batch}
+          onChange={(e) => setBatch(e.target.value)}
+          style={{ width: "100%", padding: 10, marginBottom: 10 }}
+        />
+
+        <button
+          onClick={createProduct}
+          style={{
+            width: "100%",
+            padding: 10,
+            background: "green",
+            color: "white",
+            cursor: "pointer"
+          }}
+        >
+          Create Product
+        </button>
+      </div>
+
+      {/* Status */}
+      <div style={{ marginTop: 30, fontWeight: "bold" }}>
+        {status}
+      </div>
+
+      {/* Verify Link */}
+      {verifyUrl && (
+        <div style={{ marginTop: 20 }}>
+          <p><strong>Verify Link:</strong></p>
+          <a
+            href={verifyUrl}
+            target="_blank"
+            style={{ color: "blue", wordBreak: "break-all" }}
+          >
+            {verifyUrl}
+          </a>
+        </div>
+      )}
     </div>
   )
 }

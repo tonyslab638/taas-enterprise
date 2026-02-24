@@ -1,106 +1,62 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { ethers } from "ethers"
-import { useSearchParams } from "next/navigation"
+
+const API_BASE =
+  process.env.NEXT_PUBLIC_API_URL ||
+  "https://taas-api-1nxo.onrender.com"
 
 export default function VerifyPage() {
-  const searchParams = useSearchParams()
-  const id = searchParams.get("id")
-  const sig = searchParams.get("sig")
-
-  const [product, setProduct] = useState<any>(null)
-  const [status, setStatus] = useState("Verifying...")
-  const [wallet, setWallet] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [data, setData] = useState<any>(null)
 
   useEffect(() => {
-    if (!id || !sig) return
+    const params = new URLSearchParams(window.location.search)
+    const id = params.get("id")
+    const sig = params.get("sig")
 
-    fetch(`http://localhost:5003/api/verify?id=${id}&sig=${sig}`)
-      .then(res => res.json())
-      .then(data => {
-        if (data.valid) {
-          setProduct(data.product)
-          setStatus("VALID")
-        } else {
-          setStatus("INVALID")
-        }
-      })
-      .catch(() => setStatus("ERROR"))
-  }, [id, sig])
-
-  async function connectWallet() {
-    if (!(window as any).ethereum) {
-      alert("Install MetaMask")
+    if (!id || !sig) {
+      setLoading(false)
+      setData({ valid: false })
       return
     }
 
-    const provider = new ethers.BrowserProvider((window as any).ethereum)
-    const accounts = await provider.send("eth_requestAccounts", [])
-    setWallet(accounts[0])
-  }
-
-  async function secureClaim() {
-    if (!wallet || !id) return
-
-    const challengeRes = await fetch("http://localhost:5003/api/challenge", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ wallet })
-    })
-
-    const challengeData = await challengeRes.json()
-    const message = challengeData.message
-
-    const provider = new ethers.BrowserProvider((window as any).ethereum)
-    const signer = await provider.getSigner()
-    const signature = await signer.signMessage(message)
-
-    const claimRes = await fetch("http://localhost:5003/api/claim-secure", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        id,
-        wallet,
-        signature
+    fetch(`${API_BASE}/api/verify?id=${id}&sig=${sig}`)
+      .then((res) => res.json())
+      .then((result) => {
+        setData(result)
+        setLoading(false)
       })
-    })
+      .catch(() => {
+        setData({ valid: false })
+        setLoading(false)
+      })
+  }, [])
 
-    const claimData = await claimRes.json()
-
-    if (claimData.success) {
-      alert("Ownership claimed securely!")
-      location.reload()
-    } else {
-      alert("Claim failed")
-    }
+  if (loading) {
+    return <div style={{ padding: 40 }}>🔍 Verifying product...</div>
   }
+
+  if (!data || !data.valid) {
+    return (
+      <div style={{ padding: 40, color: "red", fontWeight: "bold" }}>
+        ❌ INVALID PRODUCT
+      </div>
+    )
+  }
+
+  const product = data.product
 
   return (
     <div style={{ padding: 40 }}>
-      <h1>Product Verification</h1>
+      <h1 style={{ color: "green" }}>✅ AUTHENTIC PRODUCT</h1>
 
-      <p>Status: {status}</p>
-
-      {product && (
-        <div>
-          <h2>{product.brand}</h2>
-          <p>ID: {product.id}</p>
-          <p>Model: {product.model}</p>
-          <p>Owner: {product.owner}</p>
-          <p>Total Scans: {product.scans}</p>
-
-          {!wallet ? (
-            <button onClick={connectWallet}>
-              Connect Wallet
-            </button>
-          ) : (
-            <button onClick={secureClaim}>
-              Claim Ownership Securely
-            </button>
-          )}
-        </div>
-      )}
+      <p><strong>ID:</strong> {product.id}</p>
+      <p><strong>Brand:</strong> {product.brand}</p>
+      <p><strong>Model:</strong> {product.model}</p>
+      <p><strong>Category:</strong> {product.category}</p>
+      <p><strong>Owner:</strong> {product.owner}</p>
+      <p><strong>Total Scans:</strong> {product.totalScans}</p>
     </div>
   )
 }
